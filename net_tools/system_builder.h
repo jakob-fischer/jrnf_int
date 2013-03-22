@@ -1,8 +1,20 @@
+/* author: jakob fischer (jakob@automorph.info)
+ * date: 9th February 2013
+ * description: 
+ * Experimental code to build complex networks from simple networks. 
+ * The complex networks should for example include spatial connection
+ * of reaction networks. 
+ * 
+ * TODO: Develop, Test, Comment
+ */
+
+
 #ifndef SYSTEM_BUILDER_H
 #define SYSTEM_BUILDER_H
 
 #include <string>
 #include <vector>
+#include "net_tools/reaction_network.h"
 
 
 /*
@@ -38,14 +50,14 @@ class system_builder {
     system_builder(std::vector<species> &s, std::vector<reaction> &r, std::vector<compartment> &c) 
 	  : sp_ref(s), re_ref(r), cp_ref(c) {
         // Create a new species in sp for every combination of elements from 
-	// sp_ref and cp_ref. Even if they aren't all needed
-	for(size_t i=0; i<cp_ref.size(); ++i) {
-	    for(size_t j=0; j<sp_ref.size(); ++j) {
-	        sp.push_back(sp_ref[j]);
-		sp.back().set_id(sp.size()-1);
-		sp.back().set_name(sp_ref[j].get_name() + "_" + cp_ref[i].get_name());
+	    // sp_ref and cp_ref. Even if they aren't all needed
+	    for(size_t i=0; i<cp_ref.size(); ++i) {
+	        for(size_t j=0; j<sp_ref.size(); ++j) {
+	            sp.push_back(sp_ref[j]);
+		        sp.back().set_id(sp.size()-1);
+		        sp.back().set_name(sp_ref[j].get_name() + "_" + cp_ref[i].get_name());
+	        }
 	    }
-	}
     }
     
     

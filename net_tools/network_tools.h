@@ -1,3 +1,13 @@
+/* author: jakob fischer (jakob@automorph.info)
+ * date: 9th February 2013
+ * description: 
+ * Tools for creating different types of complex networks and for
+ * analyzing them.
+ *
+ * TODO: In the pan-sinha code handling of level is slightly unclear
+ *       In couple-BA  how should probability of couples be calculated?
+ */
+
 #ifndef NETWORK_TOOLS_H
 #define NETWORK_TOOLS_H
 
@@ -10,20 +20,156 @@
 #include <numeric>
 #include <algorithm>
 
+
+
 /*
- * Creates a modular hierarchic network following the model of Pan and Sinha
- * the edges are inserted with random / stochastic probability
- * 
- * TODO To be implemented
+ * Class that allows it to sample from a huge distribution given 
+ * by (unnormalized) integer values. Using a binary tree makes this
+ * class very fast and also allows it to change parts of the 
+ * distribution on log(N) time.
  */
 
-void build_pan_sinha_stoch(std::vector< std::pair<size_t, size_t> >& edges,
-		     size_t h, size_t n, size_t m, double r, double rho_0, bool self_loop=false, bool directed=false) { 
-}
+class bt_draw {
+    // Maximum number of generations of the binary tree
+    static const size_t e_max=30; 
+	
+    /*
+     * Contains the probabilities of the binary tree. probs[0] is the
+     * vector with elementary probabilities, prob[1], prob[2], ... are
+     * the higher /earlier generations. 'last' contains the number of
+     * generations.
+     */
+    size_t last;
+    std::vector<size_t> probs[e_max];
+    
+public:	
+
+
+    /*    
+     * Standard constructor
+     */
+
+    bt_draw() : last(0) {}
+	
+	
+    /*
+     * Function for changing the probability of the 'value' 'id' to 'v'.
+     * The method is changing all summed probabilities higher in the 
+     * tree.
+     */	
+	
+    bt_draw& set(size_t id, size_t v) {
+        size_t old=probs[0][id];
+
+	for(size_t i=0; i<e_max && probs[i].size() != 0; ++i) {
+	    probs[i][id/pow(2,i)]  -= old;
+	    probs[i][id/pow(2,i)]  += v;	    	    
+	}
+	    
+	return (*this);
+    }
+	
+
+    /*
+     * Extends the range of the random value by one. This outcome is 
+     * occuring with (relative) probability t 
+     */
+	
+    bt_draw& add(size_t t) {
+        // create new entry on lower level
+        probs[0].push_back(0);
+	
+        // Change tree accordingly - As long as one level higher there
+        // is half the number of nodes we have to add one to connect to    
+	size_t l=0;
+	while(probs[l].size() != 2*probs[l+1].size() &&
+	      probs[l].size() != 1) {
+	    probs[l+1].push_back(0);
+	    	    
+	    if(probs[l+1].size() == 1) {
+	        ++last;
+	        probs[l+1][0] = probs[l][0];
+	    }
+	        
+	    ++l;
+	}
+	    
+        // use set-function to change entry+summation in tree
+	return set(probs[0].size()-1, t);	
+    }
+	
+	
+    /*
+     * Returns the probability of the value with id 'i'
+     */
+
+    size_t get(size_t i) {
+	return probs[0][i];
+    }
+	
+
+    /* 
+     * Draws one number from the distribution. Ideally 
+     * srand should have been called somewhere before.
+     */
+	
+    size_t draw() const {
+        // Object is empty. Report error
+        if(last == 0) {
+	    std::cout << "bt_draw::draw() - 'last' is zero!" << std::endl;
+	    return 0;
+	}
+			
+        // Draw random number modulo sum of all probabilities
+	size_t rnd=rand()%probs[last-1][0];
+	    
+        size_t z=0; // Selected element on the level 'i'
+
+        // Going down the tree from top to bottom
+	for(size_t i=last-1; i>0; --i) {
+	    // Either not at the right flank or there, but having two childs
+	    if(z != probs[i].size()-1 || probs[i].size() == 2*probs[i-1].size()) {
+	        if(probs[i-1][z*2] > rnd) { // going down on the left
+	            z=z*2;
+	        } else {                    // going down on the right
+                    rnd = rnd - probs[i-1][z*2];
+	            z=z*2+1;
+	        }
+	    } else { // Just having one child
+	        z=z*2;
+	    }    	    
+	}
+
+	return z;
+    }
+	
+      
+    /*
+     * Returns size of the distribution
+     */
+	
+    size_t size() const {
+	return probs[0].size();	
+    }
+	
+
+    /*
+     * Copy constructor generating bt_draw from vector
+     */
+  
+    bt_draw(const std::vector<size_t>& p) : last(0)  {        	
+	for(size_t i=0; i<p.size(); ++i)
+	    add(p[i]);
+    }
+};
+
+
+
+
 
 
 /*
- * Helper for "build_pan_sinha".
+ * Helper for "create_pan_sinha".
  * Calculates the size (number of nodes) of the module on level 'level' with the
  * index 'element. It needs a vector 'elem_c' with sizes of elementary modules (level 0)
  * and the parameter 'm' 
@@ -31,9 +177,11 @@ void build_pan_sinha_stoch(std::vector< std::pair<size_t, size_t> >& edges,
 
 size_t bps_module_size(const std::vector<size_t> &elem_c, size_t m,
 			      size_t level, size_t element) {
+    // Level zero is easy
     if(level == 0) 
         return elem_c[element];
     
+    // Sum over m elementary modules for level = 1
     if(level == 1) {
         size_t sum=0;
 	
@@ -43,9 +191,9 @@ size_t bps_module_size(const std::vector<size_t> &elem_c, size_t m,
 	return sum;
     }
     
+    // Recursive addition on higher level
     return bps_module_size(elem_c, m, level-1, 2*element) +
-           bps_module_size(elem_c, m, level-1, 2*element+1);
-  
+           bps_module_size(elem_c, m, level-1, 2*element+1);  
 }
 
 
@@ -56,6 +204,7 @@ size_t bps_module_size(const std::vector<size_t> &elem_c, size_t m,
 
 size_t bps_module_offset(const std::vector<size_t> &elem_c, size_t m,
 			      size_t level, size_t element) {
+    // On level 0 sum over elementary modules before 'element'
     if(level == 0) {
         size_t sum=0;
 	
@@ -65,38 +214,50 @@ size_t bps_module_offset(const std::vector<size_t> &elem_c, size_t m,
         return sum;
     }
 	
+    // On level 1, take the offset of the first module one level lower
     if(level == 1)
-	return bps_module_offset(elem_c, m, 0, m*element);
+	    return bps_module_offset(elem_c, m, 0, m*element);
     
+    // For all other do the same, but here replace 'm' with 2
     return bps_module_offset(elem_c, m, level-1, 2*element);
 }
 
 
 /*
- * Helper for 'create_pan_sinha' that checks if two nodes 'n1' and 'n2' are in 
- * the same level-0 module.
+ * Find the number (0-indexed) of the module on level "level" in which
+ * the node "node" is located
  */
 
-bool bps_same_emodule(const std::vector<size_t> & elem_c, size_t n1, size_t n2) {
-    // ensure n1 <= n2
-    
-    size_t first=0;
-    size_t sum=0;
-    while(sum + elem_c[first] < n1) 
-        sum += elem_c[first++];  
+size_t bps_module_no(const std::vector<size_t> &elem_c, size_t m,
+	             size_t level, size_t node) {
+    size_t max_modules=0;
 
-    size_t second=0;
-    sum=0;
-    while(sum + elem_c[second] < n2) 
-        sum += elem_c[second++];  
- 
-    return first==second;  
+    // Get number of modules
+    if(level==0) 
+	max_modules=elem_c.size();
+    else 
+        max_modules=elem_c.size()/(m*pow(2,level-1)); 
+		
+    // Iterate through all modules		  
+    for(size_t i=0; i<max_modules; ++i) {
+	size_t offset=bps_module_offset(elem_c, m, level, i);
+        size_t size=bps_module_size(elem_c, m, level, i);
+        
+	if(node >= offset  &&
+           node < offset+size)
+            return i; 
+    }			  
+	
+    std::cout << "Error: bps_module_no - did not find module!" << std::endl;
+    return 0;
 }
+
 
 /*
  * Calculates the maximal number of edges for networks with 'nodes' nodes.
  * Depending on if 'self_loop's are allowed and if the network is 'directed'.
- * Multiple edges are not taken into account.
+ * Multiple edges are not taken into account, because if they are allowed 
+ * there is obviously no maximum
  */
 
 size_t bps_max_edges(size_t nodes, bool self_loop, bool directed) {
@@ -111,367 +272,136 @@ size_t bps_max_edges(size_t nodes, bool self_loop, bool directed) {
 }
 
 
+/*
+ * This function returns the (lowest) level on which the two nodes 'a' and 'b'
+ * are in the same module. This allows to calculate the probability the 
+ * edge betwen them exists.
+ */
+ 
+ size_t bps_nodes_level_comp(size_t a, size_t b, 
+                             std::vector<size_t>& elem_c, size_t m) {
+    size_t lvl=0;
+    while(bps_module_no(elem_c, m, lvl, a) !=	
+          bps_module_no(elem_c, m, lvl, b))
+        ++lvl;							 
+					
+    return lvl;							 
+}
+
 
 /*
- * The function creates a hierarchical-modular network using the algorithm of pan-sinha
- * 
- * 
+ * Macro function that does the same as bps_nodes_level_comp but uses a lookup
+ * array in which for each node and level the id / number of the module is stored.
  */
 
-void create_pan_sinha(std::vector< std::pair<size_t, size_t> >& edges, size_t N, size_t M,
-		     size_t h, size_t m, double r, bool multiple =false, bool self_loop=false, bool directed=false) {
+size_t bps_nodes_level_comp_lu(const std::vector<size_t> &modules_no, size_t N,
+                               size_t a, size_t b) {
+    size_t lvl=0;
+    while(modules_no[N*lvl+a] != modules_no[N*lvl+b])
+        ++lvl;							 
+					
+    return lvl;										   
+}
+
+
+
+/*
+ * Creates complex network following the model of Pan & Sinha. In this model a
+ * network with hierarchical modular structure is created by creating by choosing
+ * the linking probably accordingly.
+ * 
+ * edges           - reference to edgeliste where links are written to (0-based)
+ * N               - number of nodes in network
+ * M               - number of edges / links in network
+ * allow_multiple  - the same link can occur multiple times
+ * self_loop       - self loops are allowed
+ * directed        - directed network is created
+ * h               - number of binary levels
+ * m               - Number of modules on level 0 that are put in one module on
+ *                   level 1 (on higher levels it is allways to / binary tree)
+ * r               - Change linking probability by going one level up (linking
+ *                   probability between two nodes is choosen from the lowest 
+ *                   level on which they are in the same module)
+ */ 
+
+void create_pan_sinha(std::vector< std::pair<size_t, size_t> >& edges, 
+                      size_t N, size_t M, size_t h, size_t m, double r, 
+                      bool multiple =false, bool self_loop=false, 
+                      bool directed=false) {
     size_t n_el_mod=pow(2,h)*m;                   // number of elementary modules 
     size_t n_floor = floor(double(N)/n_el_mod);   // min no nodes in el. modules
     
     std::vector<size_t> elem_c;      // calculate the size of elementary nodes starting by n_floor
-    {                                // and adding 1 until N is reached
+
+    {                                // and adding 1 to each until N is reached
         size_t N_tmp=N;
    
         for(size_t i=0; i<n_el_mod; ++i) { 
             elem_c.push_back(n_floor);
-	    N_tmp -= n_floor;
+	        N_tmp -= n_floor;
         }
 
         for(size_t i=0; i<N_tmp; ++i) 
             ++elem_c[i];
     }
     
-
-    // Calculate maximum number of edges for each level
-    std::vector<double> max_edges_level, max_edges_level_r;
-    std::vector<size_t> possible_base;    
+    // Creating lookup table for asociating every node on every level with one module
+    std::vector<size_t> module_no;
+    size_t module_no_lvl=h+2;
+    for(size_t i=0; i<module_no_lvl; ++i) 
+        for(size_t j=0; j<N; ++j) 
+	    module_no.push_back(bps_module_no(elem_c, m, i, j));
     
-    {   // lowest level
-        max_edges_level.push_back(0);
-        for(size_t k=0; k<n_el_mod; ++k) {
-            size_t nodes=bps_module_size(elem_c, m, 0, k);
-            max_edges_level[0] += bps_max_edges(nodes, self_loop, directed);
-        }
-    }     
-
-    {   // medium level
-        max_edges_level.push_back(0);
-        for(size_t k=0; k<n_el_mod/m; ++k) {
-            size_t nodes=bps_module_size(elem_c, m, 1, k);
-            size_t d=bps_max_edges(nodes, self_loop, directed);
-
-            for(size_t j=0; j<m; ++j)
-                d -= bps_max_edges(elem_c[m*k+j],self_loop, directed);
-
-            max_edges_level[1] += d;
-        }
-    }
-
-    // the upper levels
-    for(size_t i=1; i<=h; ++i) {
-        max_edges_level.push_back(0);
-        for(size_t k=0; k<pow(2,h-i); ++k) {
-            size_t nodes1=bps_module_size(elem_c, m, i, k*2);
-            size_t nodes2=bps_module_size(elem_c, m, i, k*2+1);
-
-            if(directed)
-                max_edges_level[i+1] += 2*nodes1*nodes2;
-            else 
-                max_edges_level[i+1] += nodes1*nodes2;
-        }
-    }
-
-    // rescale in terms of r
-    for(size_t i=0; i<max_edges_level.size(); ++i)
-        max_edges_level_r.push_back(max_edges_level[i]*pow(r, i));
-    
-
-    // Distribute M edges on all levels according to max_edges_level-distribution
-    double sum_mel=std::accumulate(max_edges_level_r.begin(),max_edges_level_r.end(),0);
-    size_t M_tmp=M;
-    std::vector<size_t> edges_level_partition;
-    std::vector<double> edges_level_partition_dif;
-
-    for(size_t i=0; i<max_edges_level.size(); ++i) {
-        size_t tmp=floor(M*max_edges_level_r[i]/sum_mel);    
-        M_tmp -= tmp;
-        edges_level_partition.push_back(tmp);
-        edges_level_partition_dif.push_back(M*max_edges_level_r[i]/sum_mel-tmp);
-    }
-
-    while(M_tmp > 0) {
-        std::vector<double>::iterator it= 
-              std::max_element(edges_level_partition_dif.begin(), 
-                               edges_level_partition_dif.end());
-        size_t next=it-edges_level_partition_dif.begin();
-        ++edges_level_partition[next];
-        edges_level_partition_dif[next]=0;
-        --M_tmp;
-    }
-       
-    std::cout << "Show edge -> level assignment:" << std::endl;
-    for(size_t i=0; i<edges_level_partition.size(); ++i)
-        std::cout << i << "  :  " << edges_level_partition[i] << "   (" << max_edges_level[i]/pow(r,i) << ")" << std::endl;
-
-    
-    // Now generate the edges
-    
-    {   // lowest level - distribute 
-        std::vector<size_t> dist_low_level_edges;
-	std::vector<double> dist_low_level_edges_dif;
-	size_t elp_tmp=edges_level_partition[0];
-	
-	for(size_t i=0; i<n_el_mod; ++i) {
-	    //std::cout << "elem_c[" << i << "]=" << elem_c[i] << "     bpsm=" << bps_max_edges(elem_c[i], multiple, self_loop, directed) <<  std::endl;
-	  
-	  
-	    double rel=double(bps_max_edges(elem_c[i], self_loop, directed)/max_edges_level[0]*edges_level_partition[0]);
-	    dist_low_level_edges.push_back(floor(rel));
-	    dist_low_level_edges_dif.push_back(rel-floor(rel));
-	    elp_tmp -= floor(rel);
-	}
-	
-	while(elp_tmp > 0) {
-            std::vector<double>::iterator it= 
-                  std::max_element(dist_low_level_edges_dif.begin(), 
-                                   dist_low_level_edges_dif.end());
-            size_t next=it-dist_low_level_edges_dif.begin();
-            ++dist_low_level_edges[next];
-            dist_low_level_edges_dif[next]=0;
-            --elp_tmp;
-	}
-	
-	//std::cout << "elp_tmp=" << elp_tmp << std::endl;
-	
-	//std::cout << "LEVEL ZERO: ";
-	//for(size_t i=0; i<dist_low_level_edges.size(); ++i) 
-	//    std::cout << " " << dist_low_level_edges[i] << " ";
-	//std::cout << std::endl;
-	 
-	//  DO IT
-	for(size_t i=0; i<n_el_mod; ++i) {
-	    size_t offset = bps_module_offset(elem_c, m, 0, i);
-	    
-	    //std::cout << "i=" << i << std::endl;
-	    //    std::cout << "dist_low_level_edges[" << i << "] = " << dist_low_level_edges[i] << std::endl;
-	    
-	    while(dist_low_level_edges[i] > 0) {
-	        size_t n1=offset+rand()%elem_c[i];
-	        size_t n2=offset+rand()%elem_c[i];
-	        
-		if(n1 != n2 || self_loop) {
-		    if(directed) {
-	                if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(n1, n2)) == edges.end() || multiple) {
-		                edges.push_back(std::pair<size_t, size_t> (n1, n2) );
-		            --dist_low_level_edges[i];
-		        }	 
-		    } else {
-	                if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(n1, n2)) == edges.end() &&
-			   find(edges.begin(), edges.end(), std::pair<size_t, size_t>(n2, n1)) == edges.end() || multiple) {
-		                edges.push_back(std::pair<size_t, size_t> (n1, n2) );
-		            --dist_low_level_edges[i];
-		        }
-		    } 
-		}
-	    }
-	}
-    }      
-    
-    //std::cout << "DONE" << std::endl;
-    
-    {   // medium level - the most complicated ;)
-        std::vector<size_t> dist_med_level_edges;
-	std::vector<double> dist_med_level_edges_dif;
-	size_t elp_tmp=edges_level_partition[1];
-	
-	for(size_t k=0; k<n_el_mod/m; ++k) {
-	    size_t nodes=bps_module_size(elem_c, m, 1, k);
-            size_t d=bps_max_edges(nodes, self_loop, directed);
-
-            for(size_t j=0; j<m; ++j)
-                d -= bps_max_edges(elem_c[m*k+j] ,self_loop, directed);
-
-	    double rel=double(d/max_edges_level[1]*edges_level_partition[1]);
-	    
-	    dist_med_level_edges.push_back(floor(rel));
- 	    dist_med_level_edges_dif.push_back(rel-floor(rel));
-	    elp_tmp -= floor(rel);
-	}
-	
-	while(elp_tmp > 0) {
-            std::vector<double>::iterator it= 
-                  std::max_element(dist_med_level_edges_dif.begin(), 
-                                   dist_med_level_edges_dif.end());
-            size_t next=it-dist_med_level_edges_dif.begin();
-            ++dist_med_level_edges[next];
-            dist_med_level_edges_dif[next]=0;
-            --elp_tmp;
-	}
-	
-	//std::cout << "elp_tmp=" << elp_tmp << std::endl;
-	
-	//std::cout << "LEVEL ONE: ";
-	//for(size_t i=0; i<dist_med_level_edges.size(); ++i) 
-	//    std::cout << " " << dist_med_level_edges[i] << " ";
-	//std::cout << std::endl;
-	 
-	// DO IT
-	 
-        for(size_t k=0; k<n_el_mod/m; ++k) {
-	    size_t offset = bps_module_offset(elem_c, m, 1, k);	
-	    size_t nodes=bps_module_size(elem_c, m, 1, k);
-	    
-	    while(dist_med_level_edges[k] > 0) {
-	        size_t n1=offset+rand()%nodes;  
-	        size_t n2=offset+rand()%nodes; 
-	      
-		if(!bps_same_emodule(elem_c, n1, n2)) {
-                    if(directed) {
-	                if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(n1, n2)) == edges.end() || multiple) {
-		                edges.push_back(std::pair<size_t, size_t> (n1, n2) );
-		            --dist_med_level_edges[k];
-		        }	 
-		    } else {
-	                if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(n1, n2)) == edges.end() ||
-			   find(edges.begin(), edges.end(), std::pair<size_t, size_t>(n2, n1)) == edges.end() || multiple) {
-		                edges.push_back(std::pair<size_t, size_t> (n1, n2) );
-		            --dist_med_level_edges[k];
-		        }
-		    } 		  
-		  
-		  
-		  
-		}
-	    }
-	}
-    }
-    
-    {    // connect the higher levels 
-        for(size_t i=1; i<=h; ++i) {
-            std::vector<size_t> dist_x_level_edges;
-	    std::vector<double> dist_x_level_edges_dif;
-	    size_t elp_tmp = edges_level_partition[i+1];
-	  
-            for(size_t k=0; k<pow(2,h-i); ++k) {
-                size_t nodes1=bps_module_size(elem_c, m, i, k*2);
-                size_t nodes2=bps_module_size(elem_c, m, i, k*2+1);
-                size_t pot_edges=nodes1*nodes2;
-                if(directed)
-                    pot_edges *= 2;
-	
-		double rel=double(pot_edges/max_edges_level[i+1]*edges_level_partition[i+1]);
-	        dist_x_level_edges.push_back(floor(rel));
-	        dist_x_level_edges_dif.push_back(rel-floor(rel));
-	        elp_tmp -= floor(rel);
-            }
-             
-            while(elp_tmp > 0) {
-                std::vector<double>::iterator it= 
-                      std::max_element(dist_x_level_edges_dif.begin(), 
-                                       dist_x_level_edges_dif.end());
-                size_t next=it-dist_x_level_edges_dif.begin();
-                ++dist_x_level_edges[next];
-                dist_x_level_edges_dif[next]=0;
-                --elp_tmp;
-	    }
-	    
-	   // std::cout << "LEVEL " << i+1 << " : ";
-	   // for(size_t k=0; k<dist_x_level_edges.size(); ++k) 
-	   //     std::cout << " " << dist_x_level_edges[k] << " ";
-	   // std::cout << std::endl;
-	    
-	    
-	    // NOW we are doing the connecting
-            for(size_t k=0; k<pow(2,h-i); ++k) {
-                size_t nodes1=bps_module_size(elem_c, m, i, k*2);
-                size_t nodes2=bps_module_size(elem_c, m, i, k*2+1);
-		size_t offset=bps_module_offset(elem_c, m, i+1, k);
+    // The binary tree probability distribution object is created and initialized
+    bt_draw nw_prob;
+    for(size_t count=0; count<N*N; ++count) {    
+        // translate to nodes
+	size_t i=count/N;
+	size_t j=count%N;
 		
-		while(dist_x_level_edges[k] > 0) {
-		    size_t n1=offset+rand()%nodes1;
-		    size_t n2=offset+nodes1+rand()%nodes2;
-		    
-		    if(directed) {
-		        if(rand()%2) {
-			    if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(n1, n2)) == edges.end() || multiple) {
-		                edges.push_back(std::pair<size_t, size_t> (n1, n2) );
-		                --dist_x_level_edges[k];
-		            }	  
-			} else {
-			    if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(n2, n1)) == edges.end() || multiple) {
-		                edges.push_back(std::pair<size_t, size_t> (n2, n1) );
-		                --dist_x_level_edges[k];
-		            }	
-			}
-		    }else {
-		        if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(n1, n2)) == edges.end() ||
-			   multiple) {
-		            edges.push_back(std::pair<size_t, size_t> (n1, n2) );
-		            --dist_x_level_edges[k];
-		        }	  
-		    }
-		  
-		}
-            }
-        }    
+	if((directed || i <= j) && (self_loop  || i != j))  
+	    nw_prob.add( pow(r, bps_nodes_level_comp_lu(module_no, N, i, j))*100000 );
+	else 
+	    nw_prob.add(0);
+    }
+    
+    // Now create network
+    for(size_t a=0; a<M; ++a) {  	
+	// draw random number and find asocciated entry
+	size_t count=nw_prob.draw();
+		
+	// translate to edge
+	size_t i=count/N;
+	size_t j=count%N;
+			
+        edges.push_back(std::pair<size_t, size_t> (i, j) );
+            
+        if(!multiple)  // if no multiples allowed set prob. for next run to 0
+            nw_prob.set(count, 0);	
     }
 }
 
 
 
-
-void create_barabasi_albert_old(std::vector< std::pair<size_t, size_t> > &edges, size_t N, size_t m, size_t m0, 
-			    bool allow_multiple=false) {
-    size_t no_nodes=0;	    
-    std::vector<size_t> degree;
-    std::vector<bool> available;
-    for(size_t i=0; i<N; ++i) {
-        degree.push_back(0);
-        available.push_back(true);
-    }
-	    
-    for(; no_nodes<m0; ++no_nodes) {
-	edges.push_back(std::pair<size_t, size_t>(no_nodes, no_nodes+1));
-	++degree[no_nodes];
-	++degree[no_nodes+1];
-    }
-    ++no_nodes;
-	        
-    for(; no_nodes<N; ++no_nodes) {
-        size_t sum=0;
-	for(size_t i=0; i<no_nodes; ++i) {
-	    sum += degree[i];
-	    available[i] = true;    
-	}
-	
-	for(size_t j=0; j<m; ++j) {
-	     double rnd=double(rand())/RAND_MAX;
-	     size_t next=0;
-	     
-	     while(rnd > double(degree[next])/ sum || !available[next]) {		
-	         if(available[next])
-		     rnd -= double(degree[next])/sum;
-		 
-	         ++next;
-		 
-		 if(next > N) exit(0);
-	     }
-	     
-	     available[next]=false;
-	     sum -= degree[next];
-	     edges.push_back(std::pair<size_t, size_t>(next, no_nodes));
-             ++degree[next];
-             ++degree[no_nodes];
-	}	      
-    } 
-	    
-    if(no_nodes != N) {
-        std::cout << "ERROR: Something went wrong!" << std::endl;  
-    }
-}
-
-
-
-
-void create_barabasi_albert(std::vector< std::pair<size_t, size_t> > &edges, size_t N, size_t M, 
-			    bool multiple=false, bool self_loop=false, bool directed=true) {
+/*
+ * Creates a simple barabasi-albert-network with N nodes and M edges. Edges are written
+ * to the vector given as first parameter. Edges are indexed starting with zero.
+ * 
+ * edges           - reference to edgeliste where links are written to (0-based)
+ * N               - number of nodes in network
+ * M               - number of edges / links in network
+ * allow_multiple  - the same link can occur multiple times
+ * self_loop       - self loops are allowed
+ * directed        - directed network is created
+ */ 
+ 
+void create_barabasi_albert(std::vector< std::pair<size_t, size_t> > &edges, 
+                            size_t N, size_t M, bool multiple=false, 
+                            bool self_loop=false, bool directed=true) {
+    // vector dynamically changed to contain the functionality 
+    // (degree centrality) of all nodes
     std::vector<size_t> fun;
-    size_t fun_sum=0;
+    size_t fun_sum=0;             // sum over fun (for normalization)
     for(size_t i=0; i<N; ++i)
         fun.push_back(0);
   
@@ -484,28 +414,34 @@ void create_barabasi_albert(std::vector< std::pair<size_t, size_t> > &edges, siz
     
     // Proceeding with node 2 and higher
     for(size_t i=2; i<N; ++i) {
+        // - distribute number of edges that remain to be placed on number
+	// of nodes that have to be "created"
+	// - maximum number of edges that are going to be connected to the 
+        // current node is the number of already existing nodes
         size_t no_n_edges = M/(N-i) > i ? i : M/(N-i);
 	
-	//std::cout << "i=" << i << "  no_n_edges=" << no_n_edges << std::endl;
-	
-	for(size_t k=0; k<no_n_edges; ++k) {
-	    //std::cout << "K=" << k << "   fun_sum=" << fun_sum << std::endl;
-	    size_t l=0;
+        for(size_t k=0; k<no_n_edges; ++k) {
+	    // try creating edge number k (until done is true)
 	    bool done=false;
-	    
+	            
 	    do {
-	        l=0;
+		// select node randomly with probability of their functionality
+	        size_t l=0;
 	        long r=rand()%fun_sum;
+		        
 		while(r >= fun[l]) {
 		    r -= fun[l];
 		    ++l;
 		}
 	      
+	        // proceed if no self loop or self loop allowed
 	        if(l != i || self_loop) {
 	            if(directed) {
 	                if(find(edges.begin(), edges.end(), 
-			        std::pair<size_t, size_t>(i, l)) == edges.end() ||
+		                std::pair<size_t, size_t>(i, l)) == edges.end() ||
 		           multiple) {
+							   
+			    // directed edges are directed randomly   
 			    if(rand()%2)
 		                edges.push_back(std::pair<size_t, size_t> (i, l) );
 			    else
@@ -521,6 +457,8 @@ void create_barabasi_albert(std::vector< std::pair<size_t, size_t> > &edges, siz
 	                if(find(edges.begin(), edges.end(), 
 			        std::pair<size_t, size_t>(i, l)) == edges.end() ||
 		           multiple) {
+	                    // for non directed the higher numbered node is always
+	                    // put in first
 		            edges.push_back(std::pair<size_t, size_t> (i, l) );
 			    ++fun[i];
 			    ++fun[l];
@@ -538,36 +476,113 @@ void create_barabasi_albert(std::vector< std::pair<size_t, size_t> > &edges, siz
 
 
 
+/*
+ * Creates a simple watts-strogatz-network with N nodes and M edges. Edges are written
+ * to the vector given as first parameter. Edges are indexed starting with zero.
+ * 
+ * edges           - reference to edgeliste where links are written to (0-based)
+ * N               - number of nodes in network
+ * M               - number of edges / links in network
+ * allow_multiple  - the same link can occur multiple times
+ * self_loop       - self loops are allowed
+ * directed        - directed network is created
+ */
 
+void create_watts_strogatz(std::vector< std::pair<size_t, size_t> > &edges, 
+                           size_t N, size_t M, double beta, bool multiple=false, 
+                           bool self_loop=false, bool directed=true) {
+    // the parameters self_loop, directed and multiple are only checked
+    // for the shuffling
+    size_t M_tmp=M;     // counts the remaining number of links to be created
+    
+    for(size_t dif=1; M_tmp > 0; ++dif) {
+        for(size_t base=0; base<N && M_tmp > 0; ++base) {
+            size_t n1=base;
+	    size_t n2=(base+dif)%N;
+	  
+	    // Random direction if directed, if not there is no harm done
+	    if(rand()%2) {
+	         edges.push_back( std::pair<size_t, size_t> (n1, n2) );  
+	    } else {
+	        edges.push_back( std::pair<size_t, size_t> (n2, n1) );
+	    }
+	--M_tmp;
+	}   
+    }
+ 
+    // Shuffle second node of edge 'i' with probability beta
+    for(size_t i=0; i<edges.size(); ++i) {
+        if(double(rand())/RAND_MAX < beta) {
+	    size_t first=edges[i].first;
+	    bool found=false;
+	    
+	    // draw random numbers for second node until you find one 
+	    // that matches the constraints
+	    do {
+	        size_t second=rand()%N;
+		
+		if(second != first || self_loop) {
+		    if(directed) {
+		        if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(first, second)) == edges.end() ||
+		           multiple) {
+		            edges[i].second = second;
+		            found = true;
+		        }		      
+		    } else {
+		        if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(first, second)) == edges.end() &&
+		           find(edges.begin(), edges.end(), std::pair<size_t, size_t>(second, first)) == edges.end() ||
+		           multiple) {
+		            edges[i].second = second;
+		            found = true;
+		        }
+	            }
+		}
+	    } while (!found);
+	}
+    }
+}
 
 
 
 /*
- * Creates a simple erdos-renyi-network with n nodes and M edges. Edges are written
- * to the vector given as first parameter. Edges are indexed starting with zero. If 
- * allow_multiple is set true self loops and the multiple occurance of the same 
- * link is allowed.
+ * Creates a simple erdos-renyi-network with N nodes and M edges. Edges are written
+ * to the vector given as first parameter. Edges are indexed starting with zero.
+ * 
+ * edges           - reference to edgeliste where links are written to (0-based)
+ * N               - number of nodes in network
+ * M               - number of edges / links in network
+ * allow_multiple  - the same link can occur multiple times
+ * self_loop       - self loops are allowed
+ * directed        - directed network is created
  */
 
-void create_erdos_renyi(std::vector< std::pair<size_t, size_t> > &edges, size_t n, size_t M, 
-			bool allow_multiple=false, bool self_loop=false, bool directed = false) {
+void create_erdos_renyi(std::vector< std::pair<size_t, size_t> > &edges, 
+                        size_t N, size_t M, bool allow_multiple=false, 
+                        bool self_loop=false, bool directed = false) {
     for(size_t j=edges.size(); j<M; ++j) {
+        // Found a link that is allowed given the existing edges?
         bool found=false;
 	
 	do {  
-	    size_t first=rand()%n;  // Create node indices for link j randomly
-            size_t second=rand()%n;
+	    size_t first=rand()%N;  
+            size_t second=rand()%N;
 		
 	    // If applicable check for self loops and multiple occorance
 	    if(first != second || self_loop) {
-	        if(allow_multiple) {
+	        if(allow_multiple) { // If multiple links is allowed no reason to check for direction
 	            found = true;	 
-		    edges.push_back(std::pair<size_t, size_t> (first, second) );
-	        } else if(directed) {
-
-		} else {
-		    if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(first, second)) == edges.end() &&
-		       find(edges.begin(), edges.end(), std::pair<size_t, size_t>(second, first)) == edges.end()) {
+	            edges.push_back(std::pair<size_t, size_t> (first, second) );
+	        } else if(directed) { // If directed and no multiples allowed check once
+                    if(find(edges.begin(), edges.end(), 
+		            std::pair<size_t, size_t>(first, second)) == edges.end()) {
+		        edges.push_back(std::pair<size_t, size_t> (first, second) );
+		        found = true;
+		    }	
+                } else {              // Else link can have two forms
+                    if(find(edges.begin(), edges.end(), 
+		            std::pair<size_t, size_t>(first, second)) == edges.end() &&
+		       find(edges.begin(), edges.end(), 
+		            std::pair<size_t, size_t>(second, first)) == edges.end()) {
 		        edges.push_back(std::pair<size_t, size_t> (first, second) );
 		        found = true;
 		    }		  
@@ -580,76 +595,618 @@ void create_erdos_renyi(std::vector< std::pair<size_t, size_t> > &edges, size_t 
 
 
 /*
- * Creates an Erdos Renyi network with an stochastical algorithm with N nodes
- * and on average M edges. From M and the maximal number of edges a global 
- * probability for creating edges is calculated.
+ * For an Erdos-Renyi-Network this function this function selects edges to 
+ * couple edges. This can be used when a mixed 1 -> 1 / 2->2 - reaction
+ * network should be created with an Erdos-Renyi statistics of the reactants 
+ * graph. There are just 'C' pairs of links selected (without replacement).
+ *
+ * couples    - reference to a vector of pairs to that the selected couples are
+                written to 0-based 
+ * C          - number of couples that are drawn
+ * edges      - pairs vector containing the original networks edges
+ * 
+ * maintain_p - maintain properties of original network in substrate graph
+ *              (properties to maintain have to be given in following parameters)
+ * allow_multiple  - the same link can occur multiple times
+ * self_loop       - self loops are allowed
+ * directed        - directed network is created
  */
 
-void create_erdos_renyi_stoch(std::vector< std::pair<size_t, size_t> > &edges, size_t N, size_t M, 
-			bool self_loop=false, bool directed = false) {
-    if(!self_loop && !directed) {
-        double d=double(M)/(N*(N-1)*0.5);  
-      
-        for(size_t i=0; i<N; ++i) 
-	    for(size_t j=i+1; j<N; ++j)
-	        if(double(rand())/RAND_MAX < d)
-		    edges.push_back(std::pair<size_t, size_t> (i, j) );        
-    } else if (self_loop && !directed) {
-        double d=double(M)/(N*(N-1)*0.5+N);  
-      
-        for(size_t i=0; i<N; ++i) 
-	    for(size_t j=i+1; j<N; ++j)
-	        if(double(rand())/RAND_MAX < d)
-		    edges.push_back(std::pair<size_t, size_t> (i, j) );        
-    } else if (!self_loop && directed) {
-        double d=double(M)/(N*N-N); 
-      
-        for(size_t i=0; i<N; ++i) 
-	    for(size_t j=0; j<N; ++j)
-	        if(double(rand())/RAND_MAX < d && i!=j)
-		    edges.push_back(std::pair<size_t, size_t> (i, j) );      
-      
-    } else if (self_loop && directed) {
-        double d=double(M)/(N*N);  
-      
-        for(size_t i=0; i<N; ++i) 
-	    for(size_t j=0; j<N; ++j)
-	        if(double(rand())/RAND_MAX < d)
-		    edges.push_back(std::pair<size_t, size_t> (i, j) );
+void couple_erdos_renyi(std::vector< std::pair<size_t, size_t> > &couples,
+                        size_t C,
+                        std::vector< std::pair<size_t, size_t> > &edges, 
+                        bool maintain_p=false, bool allow_multiple=false, 
+                        bool self_loop=false, bool directed = false) {
+    // Calculate N and M 
+    size_t M=edges.size();
+    size_t N=0;
+    for(size_t i=0; i<M; ++i) {
+        if(edges[i].first > N)
+            N = edges[i].first;
+
+        if(edges[i].second > N)
+            N = edges[i].second;
+    }
+
+    
+    std::vector<bool> taken_f;  // which links are already part of a link pair
+    for(size_t i=0; i<edges.size(); ++i)
+        taken_f.push_back(false);
+
+    std::vector<bool> edges_m; // edges matrix (necessary if you want to maintain (not) allow multiple) 
+    if(maintain_p && !allow_multiple) {
+        for(size_t i=0; i<N*N; ++i) 
+            edges_m.push_back(false);
+
+        for(size_t i=0; i<edges.size(); ++i)
+            edges_m[edges[i].first*N+edges[i].second]=true;
+    }
+
+
+    while(C > 0) {  // C pairs have to be found
+        size_t first=rand()%edges.size();	
+	size_t second=rand()%edges.size();	
+        
+        bool legal=true;  // is this pair legal with all boundary conditions	
+
+
+
+        // both partners have to be different and free...    
+	if(first == second || taken_f[first] || taken_f[second])
+            legal=false;
+
+        // If properties from network creation are to be maintained special
+        // checks are necessary
+        if(maintain_p) {
+            size_t ff(edges[first].first), fs(edges[first].second);
+            size_t sf(edges[second].first), ss(edges[second].second);
+                
+            if(!self_loop && (ff == ss || fs == sf))
+                legal=false;
+
+            if(!allow_multiple) {
+                if(edges_m[ff*N+ss] || edges_m[sf*N+fs]) 
+                    legal=false;
+
+                if(!directed)
+                    if(edges_m[ss*N+ff] || edges_m[fs*N+sf]) 
+                        legal=false;
+            }
+        } 
+
+
+        // if still legal: do it!
+        if(legal) {
+	    couples.push_back(std::pair<size_t, size_t> (first, second));
+	    taken_f[first]=true;
+	    taken_f[second]=true;
+	    --C;	
+            
+            size_t ff(edges[first].first), fs(edges[first].second);
+            size_t sf(edges[second].first), ss(edges[second].second);
+
+            if(maintain_p && !allow_multiple) 
+                edges_m[ff*N+ss]=edges_m[sf*N+fs]=true;
+	}
+    }
+}
+
+
+
+/*
+ * For an Watts-Strogatz-Network this function this function selects edges to 
+ * couple edges. This can be used when a mixed 1 -> 1 / 2->2 - reaction
+ * network should be created with an Watts-Strogatz statistics of the reactants 
+ * graph. There are just 'C' pairs of links selected (without replacement).
+ *
+ * couples    - reference to a vector of pairs to that the selected couples are
+                written to 0-based 
+ * C          - number of couples that are drawn
+ * edges      - pairs vector containing the original networks edges
+ *
+ * maintain_p - maintain properties of original network in substrate graph
+ *              (properties to maintain have to be given in following parameters)
+ * allow_multiple  - the same link can occur multiple times
+ * self_loop       - self loops are allowed
+ * directed        - directed network is created
+ *
+ * TODO:      check!
+ */
+
+size_t cws_links_cy_dist(size_t a, size_t b, size_t N) {
+    size_t a_amb = std::abs(a-b);
+    size_t a_amb2 = std::abs(N-a_amb);
+
+    return std::min(a_amb, a_amb2);
+}
+
+ 
+void couple_watts_strogatz(std::vector< std::pair<size_t, size_t> > &couples,
+                           size_t C, std::vector< std::pair<size_t, size_t> > &edges,
+                           bool maintain_p=false, bool allow_multiple=false, 
+                           bool self_loop=false, bool directed = false) {
+    // Calculate N and M 
+    size_t M=edges.size();
+    size_t N=0;
+    for(size_t i=0; i<M; ++i) {
+        if(edges[i].first > N)
+            N = edges[i].first;
+
+        if(edges[i].second > N)
+            N = edges[i].second;
+    }
+
+
+    size_t close_v = ceil(double(M)/N); // needed to count which additional "connections" are far
+
+    std::vector<bool> edges_m; // edges matrix (necessary if you want to maintain (not) allow multiple) 
+    if(maintain_p && !allow_multiple) {
+        for(size_t i=0; i<N*N; ++i) 
+            edges_m.push_back(false);
+
+        for(size_t i=0; i<edges.size(); ++i)
+            edges_m[edges[i].first*N+edges[i].second]=true;
+    }
+
+    // count number of far links (regarding cyclic structure further appart edges than close_v)
+    size_t far_links = 0;
+    for(size_t i=0; i<edges.size(); ++i) 
+        if(cws_links_cy_dist(edges[i].first, edges[i].second, N) > close_v)
+            ++far_links;
+    
+    size_t prob_far_far=100000.0*double(far_links)/N*double(far_links)/N;
+    size_t prob_clo_clo=100000.0*(1-double(far_links)/N)*(1-double(far_links)/N);
+    size_t prob_far_clo=100000.0*double(far_links)/N*(1-double(far_links)/N);
+
+    // The binary tree probability distribution object is created and initialized
+    bt_draw nw_prob;
+    for(size_t count=0; count<M*M; ++count) {    
+        // translate to edge
+	size_t i=count/M;
+	size_t j=count%M;
+        
+        size_t ff(edges[i].first), fs(edges[i].second), sf(edges[j].first), ss(edges[j].second);  
+        size_t closenes=size_t(cws_links_cy_dist(ff, ss, N) > close_v) + 
+                        size_t(cws_links_cy_dist(sf, fs, N) > close_v);
+
+        bool legal=true;  // is this pair legal with all boundary conditions	
+
+
+
+        // both partners have to be different    
+	if(i == j)
+            legal=false;
+
+        // If properties from network creation are to be maintained special
+        // checks are necessary
+        if(maintain_p) {                
+            if(!self_loop && (ff == ss || fs == sf))
+                legal=false;
+
+            if(!allow_multiple) {
+                if(edges_m[ff*N+ss] || edges_m[sf*N+fs]) 
+                    legal=false;
+
+                if(!directed)
+                    if(edges_m[ss*N+ff] || edges_m[fs*N+sf]) 
+                        legal=false;
+            }
+        }
+
+        if(!legal)
+            nw_prob.add(0);
+        else if(closenes == 0) 
+            nw_prob.add(prob_clo_clo);
+        else if(closenes == 1) 
+            nw_prob.add(prob_far_clo);
+        else
+            nw_prob.add(prob_far_far);
+    }
+
+
+    for(size_t a=0; a<C; ++a) {  	
+	// draw random number and find asocciated entry
+	size_t count=nw_prob.draw();
+		
+	// translate to edges
+	size_t i=count/M;
+	size_t j=count%M;
+			
+        couples.push_back(std::pair<size_t, size_t> (i, j) );
+            
+        // UPDATE
+        nw_prob.set(count, 0); // Don't want to see this again
+        
+        // If we don't allow multiple we have to set all probabilities of couples
+        // coinciding with the newly created couple to zero (may take a while)
+        if(maintain_p && !allow_multiple) {
+            size_t ff(edges[i].first), fs(edges[i].second), sf(edges[j].first), ss(edges[j].second);            
+            
+            for(size_t k=0; k<M*M; ++k) 
+                if(nw_prob.get(k)) {     // Only have to think about couples with non-zero probability
+	            size_t e1=k/M;
+	            size_t e2=k%M;
+                    size_t ff_(edges[e1].first), fs_(edges[e1].second), sf_(edges[e2].first), ss_(edges[e2].second);  
+                     
+                    if(ff_ == ff && ss_ == ss || ff_ == sf && ss_ == fs ||
+                       sf_ == sf && fs_ == fs || sf_ == ff && fs_ == ss)
+                        nw_prob.set(k, 0);
+
+                    if(!directed)   // 4 more cases
+                        if(ff_ == ss && ss_ == ff || ff_ == fs && ss_ == sf ||
+                           sf_ == fs && fs_ == sf || sf_ == ss && fs_ == ff)
+                            nw_prob.set(k, 0);
+                }
+        }
     }
 }
 
 
 /*
- * An older version - implementation of the Watts Strogatz algorithm.
+ * For a Barabasi-Albert-Network this function this function selects edges to 
+ * couple edges. This can be used when a mixed 1 -> 1 / 2->2 - reaction
+ * network should be created with an Watts-Strogatz statistics of the reactants 
+ * graph. There are just 'C' pairs of links selected (without replacement).
+ *
+ * couples    - reference to a vector of pairs to that the selected couples are
+                written to 0-based 
+ * C          - number of couples that are drawn
+ * edges      - pairs vector containing the original networks edges
+ *        
+ * maintain_p - maintain properties of original network in substrate graph
+ *              (properties to maintain have to be given in following parameters)
+ * allow_multiple  - the same link can occur multiple times
+ * self_loop       - self loops are allowed
+ * directed        - directed network is created
+ * 
+ * TODO: check!
+ * TODO: How should the probability of adding a certain couple be estimated.
+ *       maximum product of "new edges" functionality or sum of products? 
+ */
+ 
+void couple_barabasi_albert(std::vector< std::pair<size_t, size_t> > &couples,
+                            size_t C, std::vector< std::pair<size_t, size_t> > &edges,
+                            bool maintain_p=false, bool allow_multiple=false, 
+                           bool self_loop=false, bool directed = false) {
+    // Calculate N and M 
+    size_t M=edges.size();
+    size_t N=0;
+    for(size_t i=0; i<M; ++i) {
+        if(edges[i].first > N)
+            N = edges[i].first;
+
+        if(edges[i].second > N)
+            N = edges[i].second;
+    }
+
+    std::vector<bool> edges_m; // edges matrix (necessary if you want to maintain (not) allow multiple) 
+    if(maintain_p && !allow_multiple) {
+        for(size_t i=0; i<N*N; ++i) 
+            edges_m.push_back(false);
+
+        for(size_t i=0; i<edges.size(); ++i)
+            edges_m[edges[i].first*N+edges[i].second]=true;
+    }
+
+    // Vector for functionality of nodes
+    std::vector<size_t> fun_n;
+    size_t fun_sum=0;
+
+    for(size_t i=0; i<N; ++i)
+        fun_n.push_back(0);
+
+    // Which edges are still available vor coupling?
+    std::vector<bool> edge_available;
+    
+    for(size_t j=0; j<M; ++j) {
+        ++fun_n[edges[j].first];	
+	++fun_n[edges[j].second];
+	fun_sum += 2;
+	edge_available.push_back(true);
+    }
+
+
+    // The binary tree probability distribution object is created and initialized
+    bt_draw nw_prob;
+    for(size_t count=0; count<M*M; ++count) {    
+        // translate to edge
+	size_t i=count/M;
+	size_t j=count%M;
+        
+        size_t ff(edges[i].first), fs(edges[i].second), sf(edges[j].first), ss(edges[j].second);  
+
+        bool legal=true;  // is this pair legal with all boundary conditions	
+
+
+
+        // both partners have to be different     
+	if(i == j)
+            legal=false;
+
+        // If properties from network creation are to be maintained special
+        // checks are necessary
+        if(maintain_p) {                
+            if(!self_loop && (ff == ss || fs == sf))
+                legal=false;
+
+            if(!allow_multiple) {
+                if(edges_m[ff*N+ss] || edges_m[sf*N+fs]) 
+                    legal=false;
+
+                if(!directed)
+                    if(edges_m[ss*N+ff] || edges_m[fs*N+sf]) 
+                        legal=false;
+            }
+        }
+
+        if(!legal)
+            nw_prob.add(0);
+        else
+            nw_prob.add(fun_n[ff]+fun_n[ss]+fun_n[fs]+fun_n[sf]);
+    }
+
+
+    for(size_t a=0; a<C; ++a) {  	
+	// draw random number and find asocciated entry
+	size_t count=nw_prob.draw();
+		
+	// translate to edges and nodes
+	size_t i=count/M;
+	size_t j=count%M;
+        size_t ff(edges[i].first), fs(edges[i].second), sf(edges[j].first), ss(edges[j].second);   
+			
+        couples.push_back(std::pair<size_t, size_t> (i, j) );
+            
+        // UPDATE
+        nw_prob.set(count, 0); // Don't want to see this again
+
+
+        // If we want to maintain probabilities for substrate graphs we have to update
+        // "virtual" functionalities und change some couples probabilities...     
+        if(maintain_p) {
+            ++fun_n[ff];	
+	    ++fun_n[fs];	
+	    ++fun_n[sf];	
+	    ++fun_n[ss];
+	    fun_sum += 4;
+
+            for(size_t k=0; k<M*M; ++k) {
+	        size_t e1=k/M;
+	        size_t e2=k%M;
+                size_t ff_(edges[e1].first), fs_(edges[e1].second), sf_(edges[e2].first), ss_(edges[e2].second);  
+
+                // This couples probability is influenced by the (virtual) functionality change?
+                if(ff == ff_ || ff == fs_ || ff == sf_ || ff == ss_ ||
+                   fs == ff_ || fs == fs_ || fs == sf_ || fs == ss_ ||
+                   sf == ff_ || sf == fs_ || sf == sf_ || sf == ss_ ||
+                   ss == ff_ || ss == fs_ || ss == sf_ || ss == ss_) 
+                    nw_prob.set(k, fun_n[ff_]+fun_n[ss_]+fun_n[fs_]+fun_n[sf_]);
+
+                // If we don't allow multiple we have to set all probabilities of couples
+                // coinciding with the newly created couple to zero (may take a while)
+
+                if(!allow_multiple) 
+                    if(nw_prob.get(k)) {     // Only have to think about couples with non-zero probability
+                        // All couples which "virtual edges" are equal to the just created "virtual edges" are set to 0 
+                        if(ff_ == ff && ss_ == ss || ff_ == sf && ss_ == fs ||
+                           sf_ == sf && fs_ == fs || sf_ == ff && fs_ == ss)
+                            nw_prob.set(k, 0);
+
+                        if(!directed)   // 4 more cases for undirected networks
+                            if(ff_ == ss && ss_ == ff || ff_ == fs && ss_ == sf ||
+                              sf_ == fs && fs_ == sf || sf_ == ss && fs_ == ff)
+                                nw_prob.set(k, 0);
+                    }
+
+            }
+        }
+
+    } 					 
+}
+
+
+
+/*
+ * For a pan-sinha-network...
+ *
+ * couples    - reference to a vector of pairs to that the selected couples are
+                written to 0-based 
+ * C          - number of couples that are drawn
+ * edges      - pairs vector containing the original networks edges
+ *
+ * h          -
+ * m          -
+ * r          -
+ *        
+ * maintain_p - maintain properties of original network in substrate graph
+ *              (properties to maintain have to be given in following parameters)
+ * allow_multiple  - the same link can occur multiple times
+ * self_loop       - self loops are allowed
+ * directed        - directed network is created
+ * 
+ * TODO: check!
  */
 
-void create_watts_strogatz_old(std::vector< std::pair<size_t, size_t> > &edges, size_t N, size_t K, double beta, bool allow_multiple=false) {
-    if(allow_multiple)
-        std::cerr << "Warning: create_watts_strogatz called with allow_multiple. Not implemented yet!" << std::endl;
-  
-    // create regular lattice
-    for(size_t i=1; i<=K/2; ++i) 
+void couple_pan_sinha(std::vector< std::pair<size_t, size_t> > &couples,
+                      size_t C, std::vector< std::pair<size_t, size_t> >& edges, 
+                      size_t h, size_t m, double r,
+                      bool maintain_p=false, bool allow_multiple=false, 
+                      bool self_loop=false, bool directed = false) {
+    // Calculate N and M 
+    size_t M=edges.size();
+    size_t N=0;
+    for(size_t i=0; i<M; ++i) {
+        if(edges[i].first > N)
+            N = edges[i].first;
+
+        if(edges[i].second > N)
+            N = edges[i].second;
+    }
+
+    std::vector<bool> edges_m; // edges matrix (necessary if you want to maintain (not) allow multiple) 
+    if(maintain_p && !allow_multiple) {
+        for(size_t i=0; i<N*N; ++i) 
+            edges_m.push_back(false);
+
+        for(size_t i=0; i<edges.size(); ++i)
+            edges_m[edges[i].first*N+edges[i].second]=true;
+    }
+
+    size_t n_el_mod=pow(2,h)*m;                   // number of elementary modules 
+    size_t n_floor = floor(double(N)/n_el_mod);   // min no nodes in el. modules
+    
+    std::vector<size_t> elem_c;      // calculate the size of elementary nodes starting by n_floor
+
+    {                                // and adding 1 to each until N is reached
+        size_t N_tmp=N;
+   
+        for(size_t i=0; i<n_el_mod; ++i) { 
+            elem_c.push_back(n_floor);
+	        N_tmp -= n_floor;
+        }
+
+        for(size_t i=0; i<N_tmp; ++i) 
+            ++elem_c[i];
+    }
+    
+    // Creating lookup table for asociating every node on every level with one module
+    std::vector<size_t> module_no;
+    size_t module_no_lvl=h+2;
+    for(size_t i=0; i<module_no_lvl; ++i) 
         for(size_t j=0; j<N; ++j) 
-	    edges.push_back( std::pair<size_t, size_t>(j, (j+i)%N) );    
-	
- 
-    for(size_t i=0; i<edges.size(); ++i) {
-        if(double(rand())/RAND_MAX < beta) {
-	    size_t first=edges[i].first;
-	    bool found=false;
-	    
-	    do {
-	        size_t second=rand()%N;
+	    module_no.push_back(bps_module_no(elem_c, m, i, j));
+    
+
+    // The binary tree probability distribution object is created and initialized
+    bt_draw nw_prob;
+    for(size_t count=0; count<M*M; ++count) {    
+        // translate to edge
+	size_t i=count/M;
+	size_t j=count%M;
+        
+        size_t ff(edges[i].first), fs(edges[i].second), sf(edges[j].first), ss(edges[j].second);  
+
+        bool legal=true;  // is this pair legal with all boundary conditions	
+
+
+        // both partners have to be different     
+	if(i == j)
+            legal=false;
+
+        // If properties from network creation are to be maintained special
+        // checks are necessary
+        if(maintain_p) {                
+            if(!self_loop && (ff == ss || fs == sf))
+                legal=false;
+
+            if(!allow_multiple) {
+                if(edges_m[ff*N+ss] || edges_m[sf*N+fs]) 
+                    legal=false;
+
+                if(!directed)
+                    if(edges_m[ss*N+ff] || edges_m[fs*N+sf]) 
+                        legal=false;
+            }
+        }
+
+        if(!legal)
+            nw_prob.add(0);
+        else
+            nw_prob.add( pow(r, bps_nodes_level_comp_lu(module_no, N, ff, ss))*
+                         pow(r, bps_nodes_level_comp_lu(module_no, N, sf, fs))*100000 );
+    }
+
+
+    for(size_t a=0; a<C; ++a) {  	
+	// draw random number and find asocciated entry
+	size_t count=nw_prob.draw();
 		
-		if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(first, second)) == edges.end() &&
-		   find(edges.begin(), edges.end(), std::pair<size_t, size_t>(second, first)) == edges.end() &&
-		   second != first) {
-		    edges[i].second = second;
-		    found = true;
-	        }
-	    } while (!found);
-	}
+	// translate to edges and nodes
+	size_t i=count/M;
+	size_t j=count%M;
+        size_t ff(edges[i].first), fs(edges[i].second), sf(edges[j].first), ss(edges[j].second);   
+			
+        couples.push_back(std::pair<size_t, size_t> (i, j) );
+            
+        // UPDATE
+        nw_prob.set(count, 0); // Don't want to see this again
+
+
+        // If we want to maintain probabilities for substrate graphs we have to update
+        // "virtual" functionalities und change some couples probabilities...     
+        if(maintain_p) {
+            for(size_t k=0; k<M*M; ++k) {
+	        size_t e1=k/M;
+	        size_t e2=k%M;
+                size_t ff_(edges[e1].first), fs_(edges[e1].second), sf_(edges[e2].first), ss_(edges[e2].second);  
+
+
+                // If we don't allow multiple we have to set all probabilities of couples
+                // coinciding with the newly created couple to zero (may take a while)
+
+                if(!allow_multiple) 
+                    if(nw_prob.get(k)) {     // Only have to think about couples with non-zero probability
+                        // All couples which "virtual edges" are equal to the just created "virtual edges" are set to 0 
+                        if(ff_ == ff && ss_ == ss || ff_ == sf && ss_ == fs ||
+                           sf_ == sf && fs_ == fs || sf_ == ff && fs_ == ss)
+                            nw_prob.set(k, 0);
+
+                        if(!directed)   // 4 more cases for undirected networks
+                            if(ff_ == ss && ss_ == ff || ff_ == fs && ss_ == sf ||
+                              sf_ == fs && fs_ == sf || sf_ == ss && fs_ == ff)
+                                nw_prob.set(k, 0);
+                    }
+            }
+        }
+
+    } 				  
+}
+
+
+
+
+
+/*
+ * Creates an Erdos Renyi network with an stochastical algorithm with N nodes
+ * and on average M edges. From M and the maximal number of edges a global 
+ * probability for creating edges is calculated.
+ */
+
+void create_erdos_renyi_stoch(std::vector< std::pair<size_t, size_t> > &edges, 
+                              size_t N, size_t M, bool self_loop=false, 
+                              bool directed = false) {
+    // For each case, calculate first the probability for a arbitrary link
+    // of existing d, so that the expectation value for number of links is M
+    // and then iterate over all possible links
+
+    if(!self_loop && !directed) {
+        double d=double(M)/(N*(N-1)*0.5);  
+      
+        for(size_t i=0; i<N; ++i) 
+	        for(size_t j=i+1; j<N; ++j)
+	            if(double(rand())/RAND_MAX < d)
+		            edges.push_back(std::pair<size_t, size_t> (i, j) );        
+    } else if (self_loop && !directed) {
+        double d=double(M)/(N*(N-1)*0.5+N);  
+      
+        for(size_t i=0; i<N; ++i) 
+	        for(size_t j=i; j<N; ++j)
+	            if(double(rand())/RAND_MAX < d)
+		            edges.push_back(std::pair<size_t, size_t> (i, j) );        
+    } else if (!self_loop && directed) {
+        double d=double(M)/(N*N-N); 
+      
+        for(size_t i=0; i<N; ++i) 
+	        for(size_t j=0; j<N; ++j)
+	            if(double(rand())/RAND_MAX < d && i!=j)
+		            edges.push_back(std::pair<size_t, size_t> (i, j) );      
+    } else if (self_loop && directed) {
+        double d=double(M)/(N*N);  
+      
+        for(size_t i=0; i<N; ++i) 
+	        for(size_t j=0; j<N; ++j)
+	            if(double(rand())/RAND_MAX < d)
+		            edges.push_back(std::pair<size_t, size_t> (i, j) );
     }
 }
 
@@ -657,64 +1214,9 @@ void create_watts_strogatz_old(std::vector< std::pair<size_t, size_t> > &edges, 
 
 
 
-
-void create_watts_strogatz(std::vector< std::pair<size_t, size_t> > &edges, size_t N, size_t M, double beta, 
-			   bool multiple=false, bool self_loop=false, bool directed=true) {
-    // PARAMETERS ARE ONLY CHECKED FOR REWIRING
-  
-    size_t M_tmp=M;
-  
-    for(size_t dif=1; M_tmp > 0; ++dif) {
-        for(size_t base=0; base<N && M_tmp > 0; ++base) {
-	    size_t n1=base;
-	    size_t n2=(base+dif)%N;
-	  
-	    if(rand()%2) {
-	        edges.push_back( std::pair<size_t, size_t> (n1, n2) );  
-	    } else {
-	        edges.push_back( std::pair<size_t, size_t> (n2, n1) );
-	    }
-	    
-	    --M_tmp;
-	}   
-    }
- 
-    // Shuffle
-    for(size_t i=0; i<edges.size(); ++i) {
-        if(double(rand())/RAND_MAX < beta) {
-	    size_t first=edges[i].first;
-	    bool found=false;
-	    
-	    do {
-	        size_t second=rand()%N;
-		
-		if(second != first || self_loop) {
-		    if(directed) {
-		        if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(first, second)) == edges.end() ||
-		           multiple) {
-		            edges[i].second = second;
-		            found = true;
-			}		      
-		    } else {
-		        if(find(edges.begin(), edges.end(), std::pair<size_t, size_t>(first, second)) == edges.end() &&
-		           find(edges.begin(), edges.end(), std::pair<size_t, size_t>(second, first)) == edges.end() ||
-		           multiple) {
-		            edges[i].second = second;
-		            found = true;
-			}
-	            }
-		}
-	    } while (!found);
-	}
-    }
-}
-
-
-
-
-
-/* bad written class for simple bidirectional network analysis. not developed at the 
- * moment because R and igraph can do better.
+/* bad written class for simple bidirectional network analysis. not 
+ * developed and propperly commented at the moment because R and igraph 
+ * can do better.
  */
 
 
@@ -1183,22 +1685,6 @@ public:
 	std::cout << std::endl;
      } 
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
