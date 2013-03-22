@@ -2,10 +2,10 @@
 #include <fstream>
 #include <boost/array.hpp>
 #include <boost/numeric/odeint.hpp>
-#include "cl_para.h"
-#include "reaction_network.h"
-#include "reaction_network_fileop.h"
-#include "network_tools.h"
+#include "tools/cl_para.h"
+#include "net_tools/reaction_network.h"
+#include "net_tools/reaction_network_fileop.h"
+#include "net_tools/network_tools.h"
 
 
 using namespace std;
