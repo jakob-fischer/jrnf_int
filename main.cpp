@@ -184,19 +184,19 @@ int main(int argc, const char *argv []){
     
     
         // Calculate rate coefficients for forward and backward reaction
-        for(size_t i=0; i<re.size(); ++i) {
-            double e_E = sp[re[i].get_educt_id(0)].get_energy();
-            double e_P = sp[re[i].get_product_id(0)].get_energy();
-	    double e_A = re[i].get_activation();
+        //for(size_t i=0; i<re.size(); ++i) {
+        //    double e_E = sp[re[i].get_educt_id(0)].get_energy();
+        //    double e_P = sp[re[i].get_product_id(0)].get_energy();
+	//    double e_A = re[i].get_activation();
       
-            if(bi_reaction[i]) {
-	        e_E += sp[re[i].get_educt_id(1)].get_energy();
-                e_P += sp[re[i].get_product_id(1)].get_energy();	  
-	    }
+        //    if(bi_reaction[i]) {
+	//        e_E += sp[re[i].get_educt_id(1)].get_energy();
+        //        e_P += sp[re[i].get_product_id(1)].get_energy();	  
+	//    }
 	
-	    re[i].set_k(exp(-(e_A-e_E)));
-	    re[i].set_k_b(exp(-(e_A-e_P)));
-        }
+	//    re[i].set_k(exp(-(e_A-e_E)));
+	//    re[i].set_k_b(exp(-(e_A-e_P)));
+        //}
         
         // Read last line of concentration file and write initial concentration to initial_con
         // and initial time to initial_t. After done open the same file for appending...
@@ -225,6 +225,7 @@ int main(int argc, const char *argv []){
             }
         }
 
+          
         data.close();
         out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::ate);
 
