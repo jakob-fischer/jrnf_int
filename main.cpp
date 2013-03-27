@@ -1,12 +1,25 @@
+/* author: jakob fischer (jakob@automorph.info)
+ * date: 22nd March 2013
+ * description: 
+ * Tool for solving a ODE for a reaction system given as an jrnf-file. The concentration and time
+ * are read and written from / to a comma seperated file. Every row / line represents one time step.
+ * the first column contains the time of this step.
+ * 
+ * TODO Implement and comment
+ * 
+ * TODO Extend so concentration can be taken from external file (allowing for example periodic 
+ *      boundary conditions)
+ */
+
 #include <iostream>
 #include <fstream>
 #include <boost/array.hpp>
 #include <boost/numeric/odeint.hpp>
+#include <algorithm>
 #include "tools/cl_para.h"
 #include "net_tools/reaction_network.h"
 #include "net_tools/reaction_network_fileop.h"
 #include "net_tools/network_tools.h"
-
 
 using namespace std;
 using namespace boost::numeric::odeint;
@@ -17,47 +30,19 @@ typedef std::vector< double > state_type;
 
 std::vector<species> sp;
 std::vector<reaction> re;
-size_t fixed_1=0; 
-double value_1=2.0;
-double value_2=1.0;
-size_t fixed_2=0;
+std::vector<double> initial_con;
+double initial_t;
+
 std::vector<bool> bi_reaction;
+std::vector<bool> const_vec;
 ofstream out;
 
-std::vector<bool> const_vec;
 
 
 void init_state(std::vector<double>& vec) {
     for(size_t i=0; i<sp.size(); ++i) {
-	    vec.push_back(1.0);
-    
-	    if(fixed_1 == i || fixed_2 == i)
-	        const_vec.push_back(true);
-	    else 
-	        const_vec.push_back(false);
-    }
-    
-    vec[fixed_1]=value_1;
-    vec[fixed_2]=value_2;
-}
-
-
-
-void init_state(std::vector<double>& vec, const std::string& fixed_ic) {
-    ifstream fx_ic(fixed_ic.c_str());
-  
-    for(size_t i=0; i<sp.size(); ++i) {
-        double ic=-1;
-	bool fx=false;
-	fx_ic >> ic >> fx;
-	    
-	if(ic < 0) {
-	    cout << "ERROR: with reading 'fixed'-file!" << endl;
-	    return;  
-	}
-	    
-	vec.push_back(ic);
-	const_vec.push_back(fx);
+        vec.push_back(initial_con[i]);
+	const_vec.push_back(sp[i].is_constant());
     }
 }
 
@@ -67,8 +52,6 @@ void init_state(std::vector<double>& vec, const std::string& fixed_ic) {
 void next_step( const state_type &vec , state_type &dxdt , double t ) {
     for(size_t i=0; i<sp.size(); ++i) 
         dxdt[i]=0;
-
-    //cout << "re.size()=" << re.size() << endl;
     
     for(size_t i=0; i<re.size(); ++i) {
         double rate_f=re[i].get_k()*vec[re[i].get_educt_id(0)];
@@ -78,8 +61,6 @@ void next_step( const state_type &vec , state_type &dxdt , double t ) {
 	    rate_f*=vec[re[i].get_educt_id(1)];
 	    rate_b*=vec[re[i].get_product_id(1)];  
 	}
-	   
-        //cout << "rate_f=" << rate_f << "   rate_b=" << rate_b << endl;
 	   
 	// Educt 0
 	dxdt[re[i].get_educt_id(0)] -= (rate_f - rate_b);
@@ -130,53 +111,55 @@ void next_step_ud_c( const state_type &vec , state_type &dxdt , double t ) {
 
 void write_state( const state_type &vec , const double t ) {
     static size_t count=0;
+    
     if(count % 100 == 0) {
-        out << t;
+        out << std::endl << t;
         for(size_t i=0; i<sp.size(); ++i) {
-	    out << "   " << vec[i];  
+	    out << "," << vec[i];  
 	}
-	out << endl;
     }
 }
+
+
+bool is_10or01_reaction(reaction& re) { 
+    return false;
+}
+
 
 int main(int argc, const char *argv []){
     srand(time(0));
     
     cl_para cl(argc, argv);
     
-    if(cl.have_param("sim_sim_1")) {
-        // Simulates / integrates a reaction network while houlding two boundary points constant
-        // 
+    if(cl.have_param("simsim")) {
+        // Simulates / integrates a reaction network while holding the boundary point 
+        // species (constant=true) constant
       
-        if(!cl.have_param("in")) {
-            cout << "You have to give the name of input by 'in'!" << endl;  
+        if(!cl.have_param("net")) {
+            cout << "You have to give the name of reaction network by 'net'!" << endl;  
             return 1;
         }
     
-        if(!cl.have_param("out")) {
-            cout << "You have to give the name of the output file!" << endl;   
+        if(!cl.have_param("con")) {
+            cout << "You have to give the name of the concentration file by 'con'!" << endl;   
             return 1;
         }
     
-        std::string fn_network=cl.get_param("in");
-        std::string fn_output=cl.get_param("out");
-        out.open(fn_output.c_str());
+        std::string fn_network=cl.get_param("net");
+        std::string fn_concentration=cl.get_param("con");
+        out.open(fn_concentration.c_str());
     
-        if(cl.have_param("f1"))
-          fixed_1=cl.get_param_i("f1");
-    
-        if(cl.have_param("v1"))
-          value_1=cl.get_param_d("v1");
-    
-        if(cl.have_param("f2"))
-          fixed_2=cl.get_param_i("f2");
-    
-        if(cl.have_param("v2"))
-          value_2=cl.get_param_d("v2");
     
         read_jrnf_reaction_n(fn_network, sp, re);
     
-        // Checking that there are only 2-2 and 1-1 reactions 
+	
+	// Remove 1-0 and 1-0 reactions which are with constant species. Such reactions are
+	// there to ballance flow over the boundary conditions
+        std::remove_if (re.begin(), re.end(), is_10or01_reaction);
+		
+	
+        // Checking that there are only 2-2 and 1-1 reactions. Also bring all 2-2 reactions
+	// into a normal form.
         for(size_t i=0; i<re.size(); ++i) {
             if(re[i].get_no_educt() == 2 && re[i].get_no_product() == 2) {
 	        bi_reaction.push_back(true);  
@@ -190,23 +173,6 @@ int main(int argc, const char *argv []){
 	            re[i].add_product_s(re[i].get_product_id(0));	   
 		    re[i].set_product_mul(0,1.0);
 	        }
-	  
-	    } else if(re[i].get_no_educt() == 1 && re[i].get_no_product() == 1) {
-	        bi_reaction.push_back(false);        // Checking that there are only 2-2 and 1-1 reactions 
-        for(size_t i=0; i<re.size(); ++i) {
-            if(re[i].get_no_educt() == 2 && re[i].get_no_product() == 2) {
-	        bi_reaction.push_back(true);  
-	        
-		if(re[i].get_no_educt_s() == 1) {
-	            re[i].add_educt_s(re[i].get_educt_id(0));
-		    re[i].set_educt_mul(0,1.0);
-		}
-	    
-	        if(re[i].get_no_product_s() == 1) {
-	            re[i].add_product_s(re[i].get_product_id(0));	   
-		    re[i].set_product_mul(0,1.0);
-	        }
-	  
 	    } else if(re[i].get_no_educt() == 1 && re[i].get_no_product() == 1) {
 	        bi_reaction.push_back(false);
 	    } else {
@@ -216,26 +182,6 @@ int main(int argc, const char *argv []){
 	    }
         }
     
-        // Calculate rate coefficients for forward and backward reaction
-        for(size_t i=0; i<re.size(); ++i) {
-            double e_E = sp[re[i].get_educt_id(0)].get_energy();
-            double e_P = sp[re[i].get_product_id(0)].get_energy();
-	    double e_A = re[i].get_activation();
-      
-            if(bi_reaction[i]) {
-	        e_E += sp[re[i].get_educt_id(1)].get_energy();
-                e_P += sp[re[i].get_product_id(1)].get_energy();	  
-	    }
-	
-	    re[i].set_k(exp(-(e_A-e_E)));
-	    re[i].set_k_b(exp(-(e_A-e_P)));
-        }
-	    } else {
-	        cout << "Reaction " << i << " : invalid reaction. Only 1-1 and 2-2 r. allowed!" << endl;
-		cout << re[i].get_string() << endl;
-	        return 1;
-	    }
-        }
     
         // Calculate rate coefficients for forward and backward reaction
         for(size_t i=0; i<re.size(); ++i) {
@@ -251,62 +197,43 @@ int main(int argc, const char *argv []){
 	    re[i].set_k(exp(-(e_A-e_E)));
 	    re[i].set_k_b(exp(-(e_A-e_P)));
         }
+        
+        // Read last line of concentration file and write initial concentration to initial_con
+        // and initial time to initial_t. After done open the same file for appending...
+        for(size_t i=0; i<sp.size(); ++i) 
+            initial_con.push_back(0.0);
+
+        std::ifstream  data(fn_concentration.c_str());
+
+        std::string line;
+        while(std::getline(data,line)) {
+            std::stringstream ls(line);
+            std::string cell;
+                    
+            size_t cnt=0;
+            while(std::getline(ls,cell,',')) {
+                std::stringstream in(cell);            
     
+                if(cnt == 0) 
+                    in >> initial_t;                
+                else if(cnt <= sp.size())
+                    in >> initial_con[cnt-1];
+                else 
+                    std::cout << "Error at reading csv / concentration file!" << std::endl;
+
+                ++cnt;
+            }
+        }
+
+        data.close();
+        out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::ate);
+
+
+        // Init solver and start
         state_type x;
         init_state(x);
         integrate( next_step , x , 0.0 , 2500.0 , 0.01 , write_state );
-    }
-
-    
-    
-    if(cl.have_param("sim_sim_2")) {
-        // Simulates / integrates a reaction network while houlding two boundary points constant
-        // 
-      
-        if(!cl.have_param("rnet")) {
-            cout << "You have to give the name of input by 'rnet'!" << endl;  
-            return 1;
-        }
-        
-        if(!cl.have_param("initial")) {
-            cout << "You have to give the name of input by 'initial'!" << endl;  
-            return 1;
-        }
-    
-        if(!cl.have_param("out")) {
-            cout << "You have to give the name of the output file!" << endl;   
-            return 1;
-        }
-    
-        if(cl.have_param("do_pf")) {
-	    if(!cl.have_param("pf_var") || 
-	       !cl.have_param("pf_per")) {
-                 cout << "Periodic forcing enabled. You have to give 'pf_var' and 'pf_per' parameter!" << endl;   
-                 return 1;	      
-	    } 
-	}
-    
-        std::string fn_network=cl.get_param("rnet");
-        std::string fn_output=cl.get_param("out");
-	std::string fn_initial=cl.get_param("initial");
-	
-        out.open(fn_output.c_str());
-    
-	bool do_pf=cl.have_param("do_pf");
-	size_t pf_var=cl.get_param_i("pf_var");
-	double pf_per=cl.get_param_d("pf_per");
-    
-        read_jrnf_reaction_n(fn_network, sp, re);
-    
-    
-        state_type x;
-	cout << "building initial state." << endl;
-        init_state(x, fn_initial);
-	cout << "runing simulation." << endl;
-        integrate( next_step_ud_c , x , 0.0 , 2500.0 , 0.01 , write_state );
-    }
-
-    
+    }  
     
     
     if(cl.have_param("help") || cl.have_param("info")) {
@@ -314,7 +241,7 @@ int main(int argc, const char *argv []){
         cout << "          ===========" << endl;
         cout << " call with parameter 'info' or 'help' for showing this screen" << endl;
         cout << endl;
-        cout << "not implemented yet" << endl;
+        cout << "-'simsim' load reaction network 'net' and simulate file 'con'!" << endl;
 	cout << endl;
     } 
 }
