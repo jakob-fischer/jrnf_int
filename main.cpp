@@ -113,16 +113,21 @@ void write_state( const state_type &vec , const double t ) {
     static size_t count=0;
     
     if(count % 100 == 0) {
-        out << std::endl << t;
-        for(size_t i=0; i<sp.size(); ++i) {
-	    out << "," << vec[i];  
-	}
+        if(count == 0)
+            out << t;
+        else
+            out << std::endl << t;
+        
+        for(size_t i=0; i<sp.size(); ++i) 
+	        out << "," << vec[i];  
     }
+
+    ++count;
 }
 
 
 bool is_10or01_reaction(reaction& re) { 
-    return false;
+    return re.get_no_educt() == 1 && re.get_no_product() == 0 || re.get_no_educt() == 0 && re.get_no_product() == 1;
 }
 
 
@@ -147,9 +152,7 @@ int main(int argc, const char *argv []){
     
         std::string fn_network=cl.get_param("net");
         std::string fn_concentration=cl.get_param("con");
-        out.open(fn_concentration.c_str());
-    
-    
+            
         read_jrnf_reaction_n(fn_network, sp, re);
     
 	
@@ -160,26 +163,29 @@ int main(int argc, const char *argv []){
 	
         // Checking that there are only 2-2 and 1-1 reactions. Also bring all 2-2 reactions
 	// into a normal form.
+
+
+
         for(size_t i=0; i<re.size(); ++i) {
             if(re[i].get_no_educt() == 2 && re[i].get_no_product() == 2) {
-	        bi_reaction.push_back(true);  
+	            bi_reaction.push_back(true);  
 	        
-		if(re[i].get_no_educt_s() == 1) {
-	            re[i].add_educt_s(re[i].get_educt_id(0));
-		    re[i].set_educt_mul(0,1.0);
-		}
+		        if(re[i].get_no_educt_s() == 1) {
+	                re[i].add_educt_s(re[i].get_educt_id(0));
+		            re[i].set_educt_mul(0,1.0);
+		        }
 	    
-	        if(re[i].get_no_product_s() == 1) {
-	            re[i].add_product_s(re[i].get_product_id(0));	   
-		    re[i].set_product_mul(0,1.0);
+	            if(re[i].get_no_product_s() == 1) {
+	                re[i].add_product_s(re[i].get_product_id(0));	   
+		            re[i].set_product_mul(0,1.0);
+	            }
+	        } else if(re[i].get_no_educt() == 1 && re[i].get_no_product() == 1) {
+	            bi_reaction.push_back(false);
+	        } else {
+	            cout << "Reaction " << i << " : invalid reaction. Only 1-1 and 2-2 r. allowed!" << endl;
+		        cout << re[i].get_string() << endl;
+	            return 1;
 	        }
-	    } else if(re[i].get_no_educt() == 1 && re[i].get_no_product() == 1) {
-	        bi_reaction.push_back(false);
-	    } else {
-	        cout << "Reaction " << i << " : invalid reaction. Only 1-1 and 2-2 r. allowed!" << endl;
-		cout << re[i].get_string() << endl;
-	        return 1;
-	    }
         }
     
     
@@ -203,13 +209,20 @@ int main(int argc, const char *argv []){
         for(size_t i=0; i<sp.size(); ++i) 
             initial_con.push_back(0.0);
 
+        //cout << "HALLO: " << fn_concentration << std::endl;
+
         std::ifstream  data(fn_concentration.c_str());
 
         std::string line;
-        while(std::getline(data,line)) {
+        std::getline(data,line);       // dont want the header
+
+        // the real 
+        while(!std::getline(data,line).eof()) {
             std::stringstream ls(line);
             std::string cell;
-                    
+                 
+            cout << "line: " << line << std::endl;           
+   
             size_t cnt=0;
             while(std::getline(ls,cell,',')) {
                 std::stringstream in(cell);            
@@ -227,13 +240,13 @@ int main(int argc, const char *argv []){
 
           
         data.close();
-        out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::ate);
+        out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
 
 
         // Init solver and start
         state_type x;
         init_state(x);
-        integrate( next_step , x , 0.0 , 2500.0 , 0.01 , write_state );
+        integrate( next_step , x , 0.0 , 25000.0 , 0.01 , write_state );
     }  
     
     
