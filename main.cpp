@@ -31,7 +31,7 @@ typedef std::vector< double > state_type;
 std::vector<species> sp;
 std::vector<reaction> re;
 std::vector<double> initial_con;
-double initial_t;
+double initial_t, deltaT(0.1), Tmax(25000);
 
 std::vector<bool> bi_reaction;
 std::vector<bool> const_vec;
@@ -112,7 +112,7 @@ void next_step_ud_c( const state_type &vec , state_type &dxdt , double t ) {
 void write_state( const state_type &vec , const double t ) {
     static size_t count=0;
     
-    if(count % 100 == 0) {
+    if(count % 1000 == 0) {
         if(count == 0)
             out << t;
         else
@@ -149,10 +149,19 @@ int main(int argc, const char *argv []){
             cout << "You have to give the name of the concentration file by 'con'!" << endl;   
             return 1;
         }
+
+        if(cl.have_param("deltaT")) 
+            deltaT = cl.get_param_d("deltaT");
     
+        if(cl.have_param("Tmax")) 
+            Tmax = cl.get_param_d("Tmax");
+
         std::string fn_network=cl.get_param("net");
         std::string fn_concentration=cl.get_param("con");
             
+        std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax << std::endl;
+
+
         read_jrnf_reaction_n(fn_network, sp, re);
     
 	
@@ -187,29 +196,12 @@ int main(int argc, const char *argv []){
 	            return 1;
 	        }
         }
-    
-    
-        // Calculate rate coefficients for forward and backward reaction
-        //for(size_t i=0; i<re.size(); ++i) {
-        //    double e_E = sp[re[i].get_educt_id(0)].get_energy();
-        //    double e_P = sp[re[i].get_product_id(0)].get_energy();
-	//    double e_A = re[i].get_activation();
-      
-        //    if(bi_reaction[i]) {
-	//        e_E += sp[re[i].get_educt_id(1)].get_energy();
-        //        e_P += sp[re[i].get_product_id(1)].get_energy();	  
-	//    }
-	
-	//    re[i].set_k(exp(-(e_A-e_E)));
-	//    re[i].set_k_b(exp(-(e_A-e_P)));
-        //}
+
         
         // Read last line of concentration file and write initial concentration to initial_con
         // and initial time to initial_t. After done open the same file for appending...
         for(size_t i=0; i<sp.size(); ++i) 
             initial_con.push_back(0.0);
-
-        //cout << "HALLO: " << fn_concentration << std::endl;
 
         std::ifstream  data(fn_concentration.c_str());
 
@@ -246,7 +238,7 @@ int main(int argc, const char *argv []){
         // Init solver and start
         state_type x;
         init_state(x);
-        integrate( next_step , x , 0.0 , 25000.0 , 0.01 , write_state );
+        integrate( next_step , x , initial_t , Tmax , deltaT , write_state );
     }  
     
     
@@ -255,7 +247,7 @@ int main(int argc, const char *argv []){
         cout << "          ===========" << endl;
         cout << " call with parameter 'info' or 'help' for showing this screen" << endl;
         cout << endl;
-        cout << "-'simsim' load reaction network 'net' and simulate file 'con'!" << endl;
+        cout << "-'simsim' load reaction network 'net' and simulate file 'con'!. Parameters are 'deltaT', and 'Tmax'." << endl;
 	cout << endl;
     } 
 }
