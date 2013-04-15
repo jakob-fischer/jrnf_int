@@ -31,7 +31,7 @@ typedef std::vector< double > state_type;
 std::vector<species> sp;
 std::vector<reaction> re;
 std::vector<double> initial_con;
-double initial_t, deltaT(0.1), Tmax(25000);
+double initial_t, deltaT(0.1), Tmax(25000), wint=10000;
 
 std::vector<bool> bi_reaction;
 std::vector<bool> const_vec;
@@ -155,6 +155,9 @@ int main(int argc, const char *argv []){
     
         if(cl.have_param("Tmax")) 
             Tmax = cl.get_param_d("Tmax");
+
+        if(cl.have_param("wint"))
+            wint = cl.get_param_i("wint");
 
         std::string fn_network=cl.get_param("net");
         std::string fn_concentration=cl.get_param("con");
