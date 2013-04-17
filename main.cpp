@@ -30,8 +30,9 @@ typedef std::vector< double > state_type;
 
 std::vector<species> sp;
 std::vector<reaction> re;
-std::vector<double> initial_con;
-double initial_t, deltaT(0.1), Tmax(25000), wint=10000;
+std::vector<double> initial_con, last_con;
+double initial_t(0.0), last_write(0.0), deltaT(0.1), Tmax(25000);
+size_t wint=10000;
 
 std::vector<bool> bi_reaction;
 std::vector<bool> const_vec;
@@ -42,6 +43,7 @@ ofstream out;
 void init_state(std::vector<double>& vec) {
     for(size_t i=0; i<sp.size(); ++i) {
         vec.push_back(initial_con[i]);
+        last_con.push_back(initial_con[i]);
 	const_vec.push_back(sp[i].is_constant());
     }
 }
@@ -112,14 +114,35 @@ void next_step_ud_c( const state_type &vec , state_type &dxdt , double t ) {
 void write_state( const state_type &vec , const double t ) {
     static size_t count=0;
     
-    if(count % 1000 == 0) {
-        if(count == 0)
-            out << t;
-        else
-            out << std::endl << t;
+    if(count % wint == 0) {
+        // calculate qdiff
+        double qdiff=0;
+        for(size_t i=0; i<vec.size(); ++i)
+            qdiff += (last_con[i] - vec[i])*(last_con[i] - vec[i]);
+
+        if(t - last_write != 0)
+            qdiff /= ((t-last_write)*vec.size());
+
+        // update last_con
+        for(size_t i=0; i<vec.size(); ++i) 
+            last_con[i] = vec[i];
+
+
+        // output if sufficient time has passed
+        if((t-last_write) > 2.0*(last_write-initial_t)) {
+            if(count == 0)
+                out << std::endl;
+
+            out << t << "," << qdiff;
         
-        for(size_t i=0; i<sp.size(); ++i) 
+            for(size_t i=0; i<sp.size(); ++i) 
 	        out << "," << vec[i];  
+
+            last_write = t;
+
+            out << std::endl;
+        }
+        
     }
 
     ++count;
@@ -208,6 +231,11 @@ int main(int argc, const char *argv []){
 
         std::ifstream  data(fn_concentration.c_str());
 
+        if(!data.good()) {
+           std::cout << "Could not open concentration file: " << fn_concentration << std::endl;
+           return 0;
+        }
+
         std::string line;
         std::getline(data,line);       // dont want the header
 
@@ -220,12 +248,16 @@ int main(int argc, const char *argv []){
    
             size_t cnt=0;
             while(std::getline(ls,cell,',')) {
-                std::stringstream in(cell);            
+                std::stringstream in(cell);       
+                double last_msd=0;
+     
     
                 if(cnt == 0) 
-                    in >> initial_t;                
-                else if(cnt <= sp.size())
-                    in >> initial_con[cnt-1];
+                    in >> initial_t ;
+                else if(cnt == 1)
+                    in >> last_msd;                
+                else if(cnt <= sp.size()+1)
+                    in >> initial_con[cnt-2];
                 else 
                     std::cout << "Error at reading csv / concentration file!" << std::endl;
 
