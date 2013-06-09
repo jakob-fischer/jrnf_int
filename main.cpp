@@ -252,7 +252,7 @@ int main(int argc, const char *argv []){
             std::stringstream ls(line);
             std::string cell;
                  
-            cout << "line: " << line << std::endl;           
+            //cout << "line: " << line << std::endl;           
    
             size_t cnt=0;
             while(std::getline(ls,cell,',')) {
