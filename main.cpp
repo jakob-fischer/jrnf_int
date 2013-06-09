@@ -3,7 +3,8 @@
  * description: 
  * Tool for solving a ODE for a reaction system given as an jrnf-file. The concentration and time
  * are read and written from / to a comma seperated file. Every row / line represents one time step.
- * the first column contains the time of this step.
+ * the first column contains the time of this step, the second the msd per specie number and time
+ * step from the previous step...
  * 
  * TODO Implement and comment
  * 
@@ -13,6 +14,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <ctime>
 #include <boost/array.hpp>
 #include <boost/numeric/odeint.hpp>
 #include <algorithm>
@@ -111,39 +113,44 @@ void next_step_ud_c( const state_type &vec , state_type &dxdt , double t ) {
 }
 
 
+
+
+void do_write_state( const state_type &vec , const double t, size_t count=0 ) {
+    // calculate qdiff
+    double qdiff=0;
+    for(size_t i=0; i<vec.size(); ++i)
+        qdiff += (last_con[i] - vec[i])*(last_con[i] - vec[i]);
+
+    if(t - last_write != 0)
+        qdiff /= ((t-last_write)*vec.size());
+
+    // update last_con
+    for(size_t i=0; i<vec.size(); ++i) 
+        last_con[i] = vec[i];
+
+
+    // output if sufficient time has passed
+    if((t-last_write) > 2.0*(last_write-initial_t) || t > Tmax-deltaT) {
+        if(count == 0)
+            out << std::endl;
+
+        out << t << "," << qdiff;
+        
+        for(size_t i=0; i<sp.size(); ++i) 
+            out << "," << vec[i];  
+
+        last_write = t;
+
+        out << std::endl;
+    }
+}
+
+
 void write_state( const state_type &vec , const double t ) {
     static size_t count=0;
     
-    if(count % wint == 0) {
-        // calculate qdiff
-        double qdiff=0;
-        for(size_t i=0; i<vec.size(); ++i)
-            qdiff += (last_con[i] - vec[i])*(last_con[i] - vec[i]);
-
-        if(t - last_write != 0)
-            qdiff /= ((t-last_write)*vec.size());
-
-        // update last_con
-        for(size_t i=0; i<vec.size(); ++i) 
-            last_con[i] = vec[i];
-
-
-        // output if sufficient time has passed
-        if((t-last_write) > 2.0*(last_write-initial_t)) {
-            if(count == 0)
-                out << std::endl;
-
-            out << t << "," << qdiff;
-        
-            for(size_t i=0; i<sp.size(); ++i) 
-	        out << "," << vec[i];  
-
-            last_write = t;
-
-            out << std::endl;
-        }
-        
-    }
+    if(count % wint == 0) 
+        do_write_state(vec, t, count);        
 
     ++count;
 }
@@ -191,7 +198,7 @@ int main(int argc, const char *argv []){
         read_jrnf_reaction_n(fn_network, sp, re);
     
 	
-	// Remove 1-0 and 1-0 reactions which are with constant species. Such reactions are
+	// Remove 1-0 and 0-1 reactions which are with constant species. Such reactions are
 	// there to ballance flow over the boundary conditions
         std::remove_if (re.begin(), re.end(), is_10or01_reaction);
 		
@@ -265,15 +272,23 @@ int main(int argc, const char *argv []){
             }
         }
 
+        std::cout << "Simulating file: " << cl.get_param("con") << std::endl;
+        std::cout << "Loaded concentration file with starting time " << initial_t << std::endl;
+
           
         data.close();
         out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
 
+        size_t t0 = time(NULL);
 
         // Init solver and start
         state_type x;
         init_state(x);
         integrate( next_step , x , initial_t , Tmax , deltaT , write_state );
+        do_write_state(x, Tmax);
+
+        size_t t1 = time(NULL);
+        std::cout << "Run took " << t1-t0 << " seconds!" << std::endl;
     }  
     
     
