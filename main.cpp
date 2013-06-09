@@ -163,6 +163,7 @@ bool is_10or01_reaction(reaction& re) {
 
 int main(int argc, const char *argv []){
     srand(time(0));
+    std::cout << "odeint_rnet version 0x00x01" << std::endl;
     
     cl_para cl(argc, argv);
     
