@@ -36,6 +36,8 @@ std::vector<double> initial_con, last_con;
 double initial_t(0.0), last_write(0.0), deltaT(0.1), Tmax(25000);
 size_t wint=10000;
 
+double scale=1.0;
+
 std::vector<bool> bi_reaction;
 std::vector<bool> const_vec;
 ofstream out;
@@ -45,7 +47,7 @@ ofstream out;
 void init_state(std::vector<double>& vec) {
     for(size_t i=0; i<sp.size(); ++i) {
         vec.push_back(initial_con[i]);
-        last_con.push_back(initial_con[i]);
+        last_con.push_back(initial_con[i]/scale);
 	const_vec.push_back(sp[i].is_constant());
     }
 }
@@ -134,10 +136,10 @@ void do_write_state( const state_type &vec , const double t, size_t count=0 ) {
         if(count == 0)
             out << std::endl;
 
-        out << t << "," << qdiff;
+        out << t << "," << qdiff*(scale*scale);
         
         for(size_t i=0; i<sp.size(); ++i) 
-            out << "," << vec[i];  
+            out << "," << vec[i]*scale;  
 
         last_write = t;
 
@@ -189,6 +191,9 @@ int main(int argc, const char *argv []){
 
         if(cl.have_param("wint"))
             wint = cl.get_param_i("wint");
+
+        if(cl.have_param("scale")) 
+            scale = cl.get_param_d("scale");
 
         std::string fn_network=cl.get_param("net");
         std::string fn_concentration=cl.get_param("con");
