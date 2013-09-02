@@ -35,6 +35,7 @@ std::vector<reaction> re;
 std::vector<double> initial_con, last_con;
 double initial_t(0.0), last_write(0.0), deltaT(0.1), Tmax(25000);
 size_t wint=10000;
+size_t t0=0;
 
 double scale=1.0;
 
@@ -46,7 +47,7 @@ ofstream out;
 
 void init_state(std::vector<double>& vec) {
     for(size_t i=0; i<sp.size(); ++i) {
-        vec.push_back(initial_con[i]);
+        vec.push_back(initial_con[i]/scale);
         last_con.push_back(initial_con[i]/scale);
 	const_vec.push_back(sp[i].is_constant());
     }
@@ -145,6 +146,13 @@ void do_write_state( const state_type &vec , const double t, size_t count=0 ) {
 
         out << std::endl;
     }
+
+    if(qdiff*(scale*scale) < 1e-20 && qdiff*(scale*scale) > 1e-44) {
+        size_t t1 = time(NULL);
+        std::cout << "Run took " << t1-t0 << " seconds (finishing with <e-20 cond)!" << std::endl;
+
+        exit(0);
+    }
 }
 
 
@@ -165,7 +173,7 @@ bool is_10or01_reaction(reaction& re) {
 
 int main(int argc, const char *argv []){
     srand(time(0));
-    std::cout << "odeint_rnet version 0x00x01" << std::endl;
+    std::cout << "odeint_rnet version 0x00x02" << std::endl;
     
     cl_para cl(argc, argv);
     
@@ -199,6 +207,7 @@ int main(int argc, const char *argv []){
         std::string fn_concentration=cl.get_param("con");
             
         std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax << std::endl;
+        std::cout << "  scale=" << scale << std::endl;
 
 
         read_jrnf_reaction_n(fn_network, sp, re);
@@ -285,13 +294,18 @@ int main(int argc, const char *argv []){
         data.close();
         out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
 
-        size_t t0 = time(NULL);
+        t0 = time(NULL);
 
         // Init solver and start
         state_type x;
         init_state(x);
         integrate( next_step , x , initial_t , Tmax , deltaT , write_state );
-        do_write_state(x, Tmax);
+        //runge_kutta_dopri5< state_type > rk;
+
+        //integrate_adaptive(rk, next_step , x , initial_t , Tmax , deltaT , write_state );
+        //runge_kutta4
+
+         do_write_state(x, Tmax);
 
         size_t t1 = time(NULL);
         std::cout << "Run took " << t1-t0 << " seconds!" << std::endl;
