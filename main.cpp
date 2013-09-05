@@ -132,8 +132,12 @@ void do_write_state( const state_type &vec , const double t, size_t count=0 ) {
         last_con[i] = vec[i];
 
 
+    bool abort_early=qdiff*(scale*scale) < 1e-20 && qdiff*(scale*scale) > 1e-44;
+
+
     // output if sufficient time has passed
-    if((t-last_write) > 2.0*(last_write-initial_t) || t > Tmax-deltaT) {
+    if((t-last_write) > 2.0*(last_write-initial_t) || t > Tmax-deltaT ||
+       abort_early) {
         if(count == 0)
             out << std::endl;
 
@@ -173,7 +177,7 @@ bool is_10or01_reaction(reaction& re) {
 
 int main(int argc, const char *argv []){
     srand(time(0));
-    std::cout << "odeint_rnet version 0x00x02" << std::endl;
+    std::cout << "odeint_rnet version 0x00x03" << std::endl;
     
     cl_para cl(argc, argv);
     
@@ -289,6 +293,11 @@ int main(int argc, const char *argv []){
 
         std::cout << "Simulating file: " << cl.get_param("con") << std::endl;
         std::cout << "Loaded concentration file with starting time " << initial_t << std::endl;
+        
+        if(last_msd > 1e-44 & last_msd < 1e-20) {
+            std::cout << "1e-20-condition fulfilled: system already relaxed sufficiently!" << std::endl;
+            return 0;
+        }
 
           
         data.close();
