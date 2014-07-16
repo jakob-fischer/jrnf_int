@@ -23,8 +23,15 @@
 #include <iostream>
 #include <fstream>
 #include <ctime>
+#include <utility>
+
 #include <boost/array.hpp>
 #include <boost/numeric/odeint.hpp>
+#include <boost/phoenix/core.hpp>
+
+#include <boost/phoenix/core.hpp>
+#include <boost/phoenix/operator.hpp>
+
 #include <algorithm>
 #include "tools/cl_para.h"
 #include "net_tools/reaction_network.h"
@@ -33,6 +40,8 @@
 
 using namespace std;
 using namespace boost::numeric::odeint;
+
+namespace phoenix = boost::phoenix;
 
 
 
@@ -45,7 +54,6 @@ double initial_t(0.0), last_write(0.0), deltaT(0.1), Tmax(25000);
 size_t wint=10000;
 size_t t0=0;
 
-double scale=1.0;
 
 std::vector<bool> bi_reaction;
 std::vector<bool> const_vec;
@@ -55,8 +63,8 @@ ofstream out;
 
 void init_state(std::vector<double>& vec) {
     for(size_t i=0; i<sp.size(); ++i) {
-        vec.push_back(initial_con[i]/scale);
-        last_con.push_back(initial_con[i]/scale);
+        vec.push_back(initial_con[i]);
+        last_con.push_back(initial_con[i]);
 	const_vec.push_back(sp[i].is_constant());
     }
 }
@@ -140,7 +148,7 @@ void do_write_state( const state_type &vec , const double t, size_t count=0 ) {
         last_con[i] = vec[i];
 
 
-    bool abort_early=qdiff*(scale*scale) < 1e-20 && qdiff*(scale*scale) > 1e-44;
+    bool abort_early=qdiff < 1e-20 && qdiff > 1e-44;
 
 
     // output if sufficient time has passed
@@ -149,17 +157,17 @@ void do_write_state( const state_type &vec , const double t, size_t count=0 ) {
         if(count == 0)
             out << std::endl;
 
-        out << t << "," << qdiff*(scale*scale);
+        out << t << "," << qdiff;
         
         for(size_t i=0; i<sp.size(); ++i) 
-            out << "," << vec[i]*scale;  
+            out << "," << vec[i];  
 
         last_write = t;
 
         out << std::endl;
     }
 
-    if(qdiff*(scale*scale) < 1e-20 && qdiff*(scale*scale) > 1e-44) {
+    if(qdiff < 1e-20 && qdiff > 1e-44) {
         size_t t1 = time(NULL);
         std::cout << "Run took " << t1-t0 << " seconds (finishing with <e-20 cond)!" << std::endl;
 
@@ -185,7 +193,7 @@ bool is_10or01_reaction(reaction& re) {
 
 int main(int argc, const char *argv []){
     srand(time(0));
-    std::cout << "odeint_rnet version 0x00x03" << std::endl;
+    std::cout << "odeint_rnet version 0x00x04" << std::endl;
     
     cl_para cl(argc, argv);
     
@@ -212,14 +220,10 @@ int main(int argc, const char *argv []){
         if(cl.have_param("wint"))
             wint = cl.get_param_i("wint");
 
-        if(cl.have_param("scale")) 
-            scale = cl.get_param_d("scale");
-
         std::string fn_network=cl.get_param("net");
         std::string fn_concentration=cl.get_param("con");
             
         std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax << std::endl;
-        std::cout << "  scale=" << scale << std::endl;
 
 
         read_jrnf_reaction_n(fn_network, sp, re);
