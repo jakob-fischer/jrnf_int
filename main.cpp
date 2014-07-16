@@ -10,6 +10,14 @@
  * 
  * TODO Extend so concentration can be taken from external file (allowing for example periodic 
  *      boundary conditions)
+ *
+ * TODO Increase precission by only calculating effective flow and not forward- and backward-flow 
+ *      independently
+ * 
+ * TODO Use implicit solver from odeint...
+ *
+ * TODO In connection with function to calculate effective rates, extend file format to contain
+ *      concentrations (N values) and effective rates (M values)
  */
 
 #include <iostream>
@@ -302,6 +310,7 @@ int main(int argc, const char *argv []){
           
         data.close();
         out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
+        out.precision(25);
 
         t0 = time(NULL);
 
