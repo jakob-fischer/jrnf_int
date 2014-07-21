@@ -27,10 +27,6 @@
 
 #include <boost/array.hpp>
 #include <boost/numeric/odeint.hpp>
-#include <boost/phoenix/core.hpp>
-
-#include <boost/phoenix/core.hpp>
-#include <boost/phoenix/operator.hpp>
 
 #include <algorithm>
 #include "tools/cl_para.h"
@@ -40,9 +36,6 @@
 
 using namespace std;
 using namespace boost::numeric::odeint;
-
-namespace phoenix = boost::phoenix;
-
 
 
 typedef std::vector< double > state_type;
@@ -70,7 +63,9 @@ void init_state(std::vector<double>& vec) {
 }
 
 
-
+//
+//
+//
 
 void next_step( const state_type &vec , state_type &dxdt , double t ) {
     for(size_t i=0; i<sp.size(); ++i) 
@@ -186,9 +181,46 @@ void write_state( const state_type &vec , const double t ) {
 }
 
 
+
+//[ stiff_system_definition
+typedef boost::numeric::ublas::vector< double > vector_type;
+typedef boost::numeric::ublas::matrix< double > matrix_type;
+
+
 bool is_10or01_reaction(reaction& re) { 
     return re.get_no_educt() == 1 && re.get_no_product() == 0 || re.get_no_educt() == 0 && re.get_no_product() == 1;
 }
+
+
+struct stiff_system
+{
+    void operator()( const vector_type &x , vector_type &dxdt , double /* t */ )
+    {
+        dxdt[ 0 ] = -101.0 * x[ 0 ] - 100.0 * x[ 1 ];
+        dxdt[ 1 ] = x[ 0 ];
+    }
+};
+
+struct stiff_system_jacobi
+{
+    void operator()( const vector_type & /* x */ , matrix_type &J , const double & /* t */ , vector_type &dfdt )
+    {
+        J( 0 , 0 ) = -101.0;
+        J( 0 , 1 ) = -100.0;
+        J( 1 , 0 ) = 1.0;
+        J( 1 , 1 ) = 0.0;
+        dfdt[0] = 0.0;
+        dfdt[1] = 0.0;
+    }
+};
+
+
+//void write_state( const vector_type &vec , const double t ) {
+//    cout << t << "," << vec[0] << "," << vec[1] << endl;
+//}
+
+
+
 
 
 int main(int argc, const char *argv []){
@@ -197,6 +229,118 @@ int main(int argc, const char *argv []){
     
     cl_para cl(argc, argv);
     
+
+    // Under development...
+    // 
+
+    if(cl.have_param("simsam_dev")) {
+        // Simulates / integrates a reaction network while holding the boundary point 
+        // species (constant=true) constant
+      
+        if(!cl.have_param("net")) {
+            cout << "You have to give the name of reaction network by 'net'!" << endl;  
+            return 1;
+        }
+    
+        if(!cl.have_param("con")) {
+            cout << "You have to give the name of the concentration file by 'con'!" << endl;   
+            return 1;
+        }
+
+        if(cl.have_param("deltaT")) 
+            deltaT = cl.get_param_d("deltaT");
+    
+        if(cl.have_param("Tmax")) 
+            Tmax = cl.get_param_d("Tmax");
+
+        std::string fn_network=cl.get_param("net");
+        std::string fn_concentration=cl.get_param("con");
+            
+        std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax << std::endl;
+
+
+        read_jrnf_reaction_n(fn_network, sp, re);
+    
+	
+	// Remove 1-0 and 0-1 reactions which are with constant species. Such reactions are
+	// there to ballance flow over the boundary conditions
+        std::remove_if (re.begin(), re.end(), is_10or01_reaction);
+		
+	
+
+        
+        // Read last line of concentration file and write initial concentration to initial_con
+        // and initial time to initial_t. After done open the same file for appending...
+        for(size_t i=0; i<sp.size(); ++i) 
+            initial_con.push_back(0.0);
+
+        std::ifstream  data(fn_concentration.c_str());
+
+        if(!data.good()) {
+           std::cout << "Could not open concentration file: " << fn_concentration << std::endl;
+           return 0;
+        }
+
+        std::string line;
+        std::getline(data,line);       // dont want the header
+        double last_msd=0;
+
+        // the real 
+        while(!std::getline(data,line).eof()) {
+            std::stringstream ls(line);
+            std::string cell;
+                 
+            //cout << "line: " << line << std::endl;           
+   
+            size_t cnt=0;
+            while(std::getline(ls,cell,',')) {
+                std::stringstream in(cell);       
+    
+    
+                if(cnt == 0) 
+                    in >> initial_t ;
+                else if(cnt == 1)
+                    in >> last_msd;                
+                else if(cnt <= sp.size()+1)
+                    in >> initial_con[cnt-2];
+                else 
+                    std::cout << "Error at reading csv / concentration file!" << std::endl;
+
+                ++cnt;
+            }
+        }
+
+        std::cout << "Simulating file: " << cl.get_param("con") << std::endl;
+        std::cout << "Loaded concentration file with starting time " << initial_t << std::endl;
+        
+        if(last_msd > 1e-44 & last_msd < 1e-20) {
+            std::cout << "1e-20-condition fulfilled: system already relaxed sufficiently!" << std::endl;
+            return 0;
+        }
+
+          
+        data.close();
+        out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
+        out.precision(25);
+
+        t0 = time(NULL);
+
+        // Init solver and start
+        state_type x;
+        init_state(x);
+        //integrate( next_step , x , initial_t , Tmax , deltaT , write_state );
+        //runge_kutta_dopri5< state_type > rk;
+
+        //integrate_adaptive(rk, next_step , x , initial_t , Tmax , deltaT , write_state );
+        //runge_kutta4
+
+         do_write_state(x, Tmax);
+
+        size_t t1 = time(NULL);
+        std::cout << "Run took " << t1-t0 << " seconds!" << std::endl;
+    }  
+
+
     if(cl.have_param("simsim")) {
         // Simulates / integrates a reaction network while holding the boundary point 
         // species (constant=true) constant
