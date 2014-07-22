@@ -204,6 +204,7 @@ class reaction_network_system {
     double initial_t, last_write;
     std::vector<species> sp;
     std::vector<reaction> re;
+    std::vector<double> initial_con;
     //std::vector<double> initial_con, last_con;
     std::string fn_concentration;
 
@@ -234,6 +235,10 @@ public:
             dfdt[1] = 0.0;
         }
     };
+
+
+
+
 
 
     reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_) 
@@ -291,6 +296,7 @@ public:
 
         if(!data.good()) {
            std::cout << "Could not open concentration file: " << fn_concentration << std::endl;
+           return;
         }
 
         std::string line;
@@ -301,9 +307,7 @@ public:
         while(!std::getline(data,line).eof()) {
             std::stringstream ls(line);
             std::string cell;
-                 
-            //cout << "line: " << line << std::endl;           
-   
+
             size_t cnt=0;
             while(std::getline(ls,cell,',')) {
                 std::stringstream in(cell);       
@@ -324,39 +328,56 @@ public:
 
         std::cout << "Simulating file: " << fn_concentration << std::endl;
         std::cout << "Loaded concentration file with starting time " << initial_t << std::endl;
-        
-        if(last_msd > 1e-44 & last_msd < 1e-20) {
-            std::cout << "1e-20-condition fulfilled: system already relaxed sufficiently!" << std::endl;
-        }
-
-          
+                  
         data.close();        
          
     }
 
 
 
-    void run(double Tmax_=25000, double deltaT_=0.1, size_t wint_=1000) {
+    void run(double Tmax_=25000, double deltaT_=0.1, size_t wint_=1000, 
+             bool write_rates=false, bool solve_stiff=true) {
        out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
         out.precision(25);
 
         t0 = time(NULL);
 
         // Init solver and start
-        state_type x;
-        init_state(x);
-        integrate( next_step , x , initial_t , Tmax , deltaT , write_state );
-        //runge_kutta_dopri5< state_type > rk;
+    
+        //init_state(x);
+        //integrate( next_step , x , initial_t , Tmax , deltaT , write_state );
 
-        //integrate_adaptive(rk, next_step , x , initial_t , Tmax , deltaT , write_state );
-        //runge_kutta4
+        vector_type x( 2 , 1.0 );
 
-         do_write_state(x, Tmax);
+
+       auto write_state = [this]( const vector_type &vec , const double t ) {
+           cout << "initial_t=" << initial_t << endl;
+           cout << t << "," << vec[0] << "," << vec[1] << endl;
+       };
+
+
+        size_t step_no = 0;
+
+        if(solve_stiff) {
+            step_no = integrate_const( make_dense_output< rosenbrock4< double > >( 1.0e-6 , 1.0e-6 ) ,
+                                       make_pair( stiff_system(*this) , stiff_system_jacobi(*this) ) ,
+                                       x , 0.0 , Tmax , deltaT ,
+                                       write_state);
+        } else {
+            step_no = integrate_const( make_dense_output< runge_kutta_dopri5< vector_type > >( 1.0e-6 , 1.0e-6 ) ,
+                                       stiff_system(*this) , x , 0.0 , Tmax , deltaT ,
+                                       write_state);
+        }
+
+
+ 
+        // 
+        write_state(x, Tmax);
 
         size_t t1 = time(NULL);
         std::cout << "Run took " << t1-t0 << " seconds!" << std::endl;
 
-
+        out.close();
    }
 
 
@@ -370,9 +391,6 @@ public:
 
 
 
-//void write_state( const vector_type &vec , const double t ) {
-//    cout << t << "," << vec[0] << "," << vec[1] << endl;
-//}
 
 
 
@@ -417,7 +435,7 @@ int main(int argc, const char *argv []){
         std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax << std::endl;
 
         reaction_network_system rns = reaction_network_system(fn_network, fn_concentration); 
-        rns.run(Tmax, deltaT, wint);
+        rns.run(Tmax, deltaT, wint, write_rates);
     }  
     
     
@@ -426,7 +444,7 @@ int main(int argc, const char *argv []){
         cout << "          ===========" << endl;
         cout << " call with parameter 'info' or 'help' for showing this screen" << endl;
         cout << endl;
-        cout << "-'simsim' load reaction network 'net' and simulate file 'con'!. Parameters are 'deltaT', and 'Tmax'." << endl;
+        cout << "-'simsim_dev' load reaction network 'net' and simulate file 'con'!. Parameters are 'deltaT', and 'Tmax'." << endl;
 	cout << endl;
     } 
 }
