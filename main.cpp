@@ -38,6 +38,12 @@ using namespace std;
 using namespace boost::numeric::odeint;
 
 
+#ifndef GIT_VERSION
+#define GIT_VERSION "no version"
+#endif
+
+
+
 typedef std::vector< double > state_type;
 
 std::vector<species> sp;
@@ -199,6 +205,7 @@ class reaction_network_system {
     std::vector<species> sp;
     std::vector<reaction> re;
     //std::vector<double> initial_con, last_con;
+    std::string fn_concentration;
 
 public:
     struct stiff_system {
@@ -229,20 +236,23 @@ public:
     };
 
 
-    reaction_network_system(const std::string& fn_network, const std::string& fn_concentration) {
+    reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_) 
+        : fn_concentration(fn_concentration_)  {
         
         read_jrnf_reaction_n(fn_network, sp, re);
     
 	
-	// Remove 1-0 and 0-1 reactions which are with constant species. Such reactions are
-	// there to ballance flow over the boundary conditions
-        std::remove_if (re.begin(), re.end(), is_10or01_reaction);
+	// Remove 1-0 and 0-1 reactions. Such reactions are there to ballance flow through the boundary conditions 
+        std::remove_if (re.begin(), re.end(), 
+                        [] (reaction& re) -> bool { 
+                            return re.get_no_educt() == 1 && re.get_no_product() == 0 || 
+                                   re.get_no_educt() == 0 && re.get_no_product() == 1; });
 		
 	
         // Checking that there are only 2-2 and 1-1 reactions. Also bring all 2-2 reactions
 	// into a normal form.
 
-
+/*
 
         for(size_t i=0; i<re.size(); ++i) {
             if(re[i].get_no_educt() == 2 && re[i].get_no_product() == 2) {
@@ -261,15 +271,12 @@ public:
 	            bi_reaction.push_back(false);
 	        } else {
 	            cout << "Reaction " << i << " : invalid reaction. Only 1-1 and 2-2 r. allowed!" << endl;
-		        cout << re[i].get_string() << endl;
-	            return 1;
+		    cout << re[i].get_string() << endl;
 	        }
             }
 
 
-
-
-        
+*/       
 
 
 
@@ -284,7 +291,6 @@ public:
 
         if(!data.good()) {
            std::cout << "Could not open concentration file: " << fn_concentration << std::endl;
-           return 0;
         }
 
         std::string line;
@@ -316,12 +322,11 @@ public:
             }
         }
 
-        std::cout << "Simulating file: " << cl.get_param("con") << std::endl;
+        std::cout << "Simulating file: " << fn_concentration << std::endl;
         std::cout << "Loaded concentration file with starting time " << initial_t << std::endl;
         
         if(last_msd > 1e-44 & last_msd < 1e-20) {
             std::cout << "1e-20-condition fulfilled: system already relaxed sufficiently!" << std::endl;
-            return 0;
         }
 
           
@@ -375,7 +380,7 @@ public:
 
 int main(int argc, const char *argv []){
     srand(time(0));
-    std::cout << "odeint_rnet version 0x00x04" << std::endl;
+    std::cout << "odeint_rnet version 0x00x04 (commit:" << GIT_VERSION << ")" << std::endl;
     
     cl_para cl(argc, argv);
     
