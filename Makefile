@@ -4,8 +4,11 @@ LDFLAGS =
 
 OBJ = main.o
 
-prog: $(OBJ)
-	$(CXX) $(CFLAGS) -o prog $(OBJ) $(LDFLAGS)
+odeint_rnet: $(OBJ)
+	$(CXX) $(CFLAGS) -o odeint_rnet $(OBJ) $(LDFLAGS)
+
+clean:
+	rm -f $(OBJ); rm -f odeint_rnet
 
 %.o: %.cpp
 	$(CXX) $(CFLAGS) -c $<
