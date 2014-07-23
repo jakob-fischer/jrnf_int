@@ -44,169 +44,24 @@ using namespace boost::numeric::odeint;
 
 
 
-typedef std::vector< double > state_type;
-
-std::vector<species> sp;
-std::vector<reaction> re;
-std::vector<double> initial_con, last_con;
-double initial_t(0.0), last_write(0.0), deltaT(0.1), Tmax(25000);
-size_t wint=10000;
-size_t t0=0;
-
-
-std::vector<bool> bi_reaction;
-std::vector<bool> const_vec;
-ofstream out;
-
-
-
-void init_state(std::vector<double>& vec) {
-    for(size_t i=0; i<sp.size(); ++i) {
-        vec.push_back(initial_con[i]);
-        last_con.push_back(initial_con[i]);
-	const_vec.push_back(sp[i].is_constant());
-    }
-}
-
-
-//
-//
-//
-
-void next_step( const state_type &vec , state_type &dxdt , double t ) {
-    for(size_t i=0; i<sp.size(); ++i) 
-        dxdt[i]=0;
-    
-    for(size_t i=0; i<re.size(); ++i) {
-        double rate_f=re[i].get_k()*vec[re[i].get_educt_id(0)];
-	double rate_b=re[i].get_k_b()*vec[re[i].get_product_id(0)];
-	
-	if(bi_reaction[i]) {
-	    rate_f*=vec[re[i].get_educt_id(1)];
-	    rate_b*=vec[re[i].get_product_id(1)];  
-	}
-	   
-	// Educt 0
-	dxdt[re[i].get_educt_id(0)] -= (rate_f - rate_b);
-	
-	// Product 1
-	dxdt[re[i].get_product_id(0)] += (rate_f - rate_b);
-	
-	if(bi_reaction[i]) {
-	    // Educt 1
-	    dxdt[re[i].get_educt_id(1)] -= (rate_f - rate_b); 
-	  
-	    // Product 1
-	    dxdt[re[i].get_product_id(1)] += (rate_f - rate_b);
-	}
-    }
-
-    for(size_t i=0; i<const_vec.size(); ++i)
-        if(const_vec[i])
-	    dxdt[i]=0;
-}
-
-
-
-void next_step_ud_c( const state_type &vec , state_type &dxdt , double t ) {
-    for(size_t i=0; i<sp.size(); ++i) 
-        dxdt[i]=0;
-
-    //cout << "re.size()=" << re.size() << endl;
-    
-    for(size_t i=0; i<re.size(); ++i) {
-        double rate_f=re[i].get_k()*pow(vec[re[i].get_educt_id(0)], re[i].get_educt_mul(0));
-	
-	for(size_t j=1; j<re[i].get_no_educt_s(); ++j)
-	    rate_f*=pow(vec[re[i].get_educt_id(j)], re[i].get_educt_mul(j));
-	   
-	for(size_t k=0; k<re[i].get_no_educt_s(); ++k) 
-	    dxdt[re[i].get_educt_id(k)] -= (rate_f*re[i].get_educt_mul(k));   
-	
-	for(size_t k=0; k<re[i].get_no_product_s(); ++k) 
-	    dxdt[re[i].get_product_id(k)] += (rate_f*re[i].get_product_mul(k));
-    }
-
-    for(size_t i=0; i<const_vec.size(); ++i)
-        if(const_vec[i])
-	    dxdt[i]=0;
-}
-
-
-
-
-void do_write_state( const state_type &vec , const double t, size_t count=0 ) {
-    // calculate qdiff
-    double qdiff=0;
-    for(size_t i=0; i<vec.size(); ++i)
-        qdiff += (last_con[i] - vec[i])*(last_con[i] - vec[i]);
-
-    if(t - last_write != 0)
-        qdiff /= ((t-last_write)*vec.size());
-
-    // update last_con
-    for(size_t i=0; i<vec.size(); ++i) 
-        last_con[i] = vec[i];
-
-
-    bool abort_early=qdiff < 1e-20 && qdiff > 1e-44;
-
-
-    // output if sufficient time has passed
-    if((t-last_write) > 2.0*(last_write-initial_t) || t > Tmax-deltaT ||
-       abort_early) {
-        if(count == 0)
-            out << std::endl;
-
-        out << t << "," << qdiff;
-        
-        for(size_t i=0; i<sp.size(); ++i) 
-            out << "," << vec[i];  
-
-        last_write = t;
-
-        out << std::endl;
-    }
-
-    if(qdiff < 1e-20 && qdiff > 1e-44) {
-        size_t t1 = time(NULL);
-        std::cout << "Run took " << t1-t0 << " seconds (finishing with <e-20 cond)!" << std::endl;
-
-        exit(0);
-    }
-}
-
-
-void write_state( const state_type &vec , const double t ) {
-    static size_t count=0;
-    
-    if(count % wint == 0) 
-        do_write_state(vec, t, count);        
-
-    ++count;
-}
-
-
-
 //[ stiff_system_definition
 typedef boost::numeric::ublas::vector< double > vector_type;
 typedef boost::numeric::ublas::matrix< double > matrix_type;
-
-
-bool is_10or01_reaction(reaction& re) { 
-    return re.get_no_educt() == 1 && re.get_no_product() == 0 || re.get_no_educt() == 0 && re.get_no_product() == 1;
-}
+typedef boost::numeric::ublas::matrix< int > matrix_type_int;
 
 
 
 
 class reaction_network_system {
+    double beta;
     double initial_t, last_write;
     std::vector<species> sp;
     std::vector<reaction> re;
-    std::vector<double> initial_con;
-    //std::vector<double> initial_con, last_con;
+    vector_type initial_con;
     std::string fn_concentration;
+
+    matrix_type_int N, N_in, N_out;
+    vector_type Ea, mu0, e_bs_in, e_bs_out;
 
 public:
     struct stiff_system {
@@ -214,9 +69,33 @@ public:
 
         stiff_system(const reaction_network_system& rns_) : rns(rns_)  {}
 
+        /*
+         * Prototype for the rhs of ODE
+         * TODO: implement + test + speed up
+         */
+
         void operator()( const vector_type &x , vector_type &dxdt , double /* t */ ) {
-            dxdt[ 0 ] = -101.0 * x[ 0 ] - 100.0 * x[ 1 ];
-            dxdt[ 1 ] = x[ 0 ];
+            vector_type a1(x.size()), a2(x.size()), a3(x.size());
+            
+            for(size_t k=0; k<x.size(); ++k) {
+                a1(k) = exp(-rns.beta*rns.Ea(k));
+
+                a2(k) = 1;
+                for(size_t j=0; j<rns.N.size2(); ++j) 
+                    if(rns.N_in(j,k) != 0) 
+                        a2(k) *= pow(x(j), rns.N_in(j,k));
+                    
+                a3(k) = 1; 
+                for(size_t j=0; j<rns.N.size2(); ++j) 
+                    if(rns.N_out(j,k) != 0) 
+                        a3(k) *= pow(x(j), rns.N_out(j,k));
+            }          
+
+             dxdt = prod(rns.N, element_prod(a1, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out)));
+
+             for(size_t k=0; k<x.size(); ++k)
+                 if(rns.sp[k].is_constant())
+                     dxdt(k) = 0;
         }
     };
 
@@ -242,7 +121,7 @@ public:
 
 
     reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_) 
-        : fn_concentration(fn_concentration_)  {
+        : fn_concentration(fn_concentration_), beta(1)  {
         
         read_jrnf_reaction_n(fn_network, sp, re);
     
@@ -254,43 +133,24 @@ public:
                                    re.get_no_educt() == 0 && re.get_no_product() == 1; });
 		
 	
-        // Checking that there are only 2-2 and 1-1 reactions. Also bring all 2-2 reactions
-	// into a normal form.
-
-/*
-
-        for(size_t i=0; i<re.size(); ++i) {
-            if(re[i].get_no_educt() == 2 && re[i].get_no_product() == 2) {
-	            bi_reaction.push_back(true);  
-	        
-		        if(re[i].get_no_educt_s() == 1) {
-	                re[i].add_educt_s(re[i].get_educt_id(0));
-		            re[i].set_educt_mul(0,1.0);
-		        }
-	    
-	            if(re[i].get_no_product_s() == 1) {
-	                re[i].add_product_s(re[i].get_product_id(0));	   
-		            re[i].set_product_mul(0,1.0);
-	            }
-	        } else if(re[i].get_no_educt() == 1 && re[i].get_no_product() == 1) {
-	            bi_reaction.push_back(false);
-	        } else {
-	            cout << "Reaction " << i << " : invalid reaction. Only 1-1 and 2-2 r. allowed!" << endl;
-		    cout << re[i].get_string() << endl;
-	        }
-            }
 
 
-*/       
 
+        //matrix_type_int N, N_in, N_out;
+        // TODO: fill these matrices
+
+        
+
+
+        //vector_type Ea, mu0, e_bs_in, e_bs_out;
+        // TODO: fill these vectors
 
 
 
         
         // Read last line of concentration file and write initial concentration to initial_con
         // and initial time to initial_t. After done open the same file for appending...
-        for(size_t i=0; i<sp.size(); ++i) 
-            initial_con.push_back(0.0);
+        initial_con = boost::numeric::ublas::zero_vector<double>(sp.size());
 
         std::ifstream  data(fn_concentration.c_str());
 
@@ -318,7 +178,7 @@ public:
                 else if(cnt == 1)
                     in >> last_msd;                
                 else if(cnt <= sp.size()+1)
-                    in >> initial_con[cnt-2];
+                    in >> initial_con(cnt-2);
                 else 
                     std::cout << "Error at reading csv / concentration file!" << std::endl;
 
@@ -335,37 +195,38 @@ public:
 
 
 
-    void run(double Tmax_=25000, double deltaT_=0.1, size_t wint_=1000, 
-             bool write_rates=false, bool solve_stiff=true) {
-       out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
+    void run(double Tmax=25000, double deltaT=0.1, double wint=1000, 
+             bool write_rates=false, bool solve_implicit=true) {
+                
+        fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
         out.precision(25);
 
-        t0 = time(NULL);
+        size_t t0 = time(NULL);
 
         // Init solver and start
     
         //init_state(x);
         //integrate( next_step , x , initial_t , Tmax , deltaT , write_state );
 
-        vector_type x( 2 , 1.0 );
+        vector_type x(initial_con);
 
 
-       auto write_state = [this]( const vector_type &vec , const double t ) {
-           cout << "initial_t=" << initial_t << endl;
-           cout << t << "," << vec[0] << "," << vec[1] << endl;
-       };
+        auto write_state = [this]( const vector_type &vec , const double t ) {
+            cout << "initial_t=" << initial_t << endl;
+            cout << t << "," << vec[0] << "," << vec[1] << endl;
+        };
 
 
         size_t step_no = 0;
 
-        if(solve_stiff) {
+        if(solve_implicit) {
             step_no = integrate_const( make_dense_output< rosenbrock4< double > >( 1.0e-6 , 1.0e-6 ) ,
                                        make_pair( stiff_system(*this) , stiff_system_jacobi(*this) ) ,
-                                       x , 0.0 , Tmax , deltaT ,
+                                       x , initial_t , Tmax , deltaT ,
                                        write_state);
         } else {
             step_no = integrate_const( make_dense_output< runge_kutta_dopri5< vector_type > >( 1.0e-6 , 1.0e-6 ) ,
-                                       stiff_system(*this) , x , 0.0 , Tmax , deltaT ,
+                                       stiff_system(*this) , x , initial_t , Tmax , deltaT ,
                                        write_state);
         }
 
@@ -407,9 +268,7 @@ int main(int argc, const char *argv []){
     // under development...
 
     if(cl.have_param("simsim_dev")) {
-
         std::string fn_network, fn_concentration;      
-
 
         if(cl.have_param("net")) 
             fn_network=cl.get_param("net");
@@ -425,9 +284,9 @@ int main(int argc, const char *argv []){
             return 1;
         }
 
-        deltaT = cl.have_param("deltaT") ? cl.get_param_d("deltaT") : 0.1;   
-        Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;
-        wint = cl.have_param("wint") ? cl.get_param_i("wint") : 1000;
+        double deltaT = cl.have_param("deltaT") ? cl.get_param_d("deltaT") : 0.1;   
+        double Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;
+        double wint = cl.have_param("wint") ? cl.get_param_i("wint") : 1000;
         bool write_rates=cl.have_param("write_rates");
         bool solve_implicit=cl.have_param("solve_implicit");            
 
@@ -435,7 +294,7 @@ int main(int argc, const char *argv []){
         std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax << std::endl;
 
         reaction_network_system rns = reaction_network_system(fn_network, fn_concentration); 
-        rns.run(Tmax, deltaT, wint, write_rates);
+        rns.run(Tmax, deltaT, wint, write_rates, solve_implicit);
     }  
     
     
