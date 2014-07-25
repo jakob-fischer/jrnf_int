@@ -61,7 +61,7 @@ class reaction_network_system {
     std::string fn_concentration;
 
     matrix_type_int N, N_in, N_out;
-    vector_type Ea, mu0, e_bs_in, e_bs_out;
+    vector_type Ea, mu0, e_bs_in, e_bs_out, e_m_bEa;
 
 public:
     struct stiff_system {
@@ -71,15 +71,13 @@ public:
 
         /*
          * Prototype for the rhs of ODE
-         * TODO: implement + test + speed up
+         * TODO: test + speed up
          */
 
         void operator()( const vector_type &x , vector_type &dxdt , double /* t */ ) {
-            vector_type a1(x.size()), a2(x.size()), a3(x.size());
+            vector_type a2(x.size()), a3(x.size());
             
             for(size_t k=0; k<x.size(); ++k) {
-                a1(k) = exp(-rns.beta*rns.Ea(k));
-
                 a2(k) = 1;
                 for(size_t j=0; j<rns.N.size2(); ++j) 
                     if(rns.N_in(j,k) != 0) 
@@ -91,7 +89,7 @@ public:
                         a3(k) *= pow(x(j), rns.N_out(j,k));
             }          
 
-             dxdt = prod(rns.N, element_prod(a1, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out)));
+             dxdt = prod(rns.N, element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out)));
 
              for(size_t k=0; k<x.size(); ++k)
                  if(rns.sp[k].is_constant())
@@ -100,18 +98,48 @@ public:
     };
 
 
+
+
     struct stiff_system_jacobi {
         const reaction_network_system& rns;
 
         stiff_system_jacobi(const reaction_network_system& rns_) : rns(rns_)  {}
 
-        void operator()( const vector_type & /* x */ , matrix_type &J , const double & /* t */ , vector_type &dfdt ) {
-            J( 0 , 0 ) = -101.0;
-            J( 0 , 1 ) = -100.0;
-            J( 1 , 0 ) = 1.0;
-            J( 1 , 1 ) = 0.0;
-            dfdt[0] = 0.0;
-            dfdt[1] = 0.0;
+
+        /*
+         * Prototype for the Jacobi-Matrix of the ODE
+         * TODO: test + speed up + check if matrix has to be transposed
+         */
+
+        void operator()( const vector_type & x  , matrix_type &J , const double & /* t */ , vector_type &dfdt ) {
+            matrix_type m(x.size(),x.size());
+           
+            for(size_t i=0; i<x.size(); ++i) {
+                for(size_t l=0; l<x.size(); ++l) {
+                    double s(0);
+                    
+                    for(size_t k=0; k<rns.re.size(); ++k) {    
+                        double p1(1), p2(1);    // p1 = \prod_{j \neq k} {x_j}^N_{jk}^\mathrm{in}
+                                                // p2 = \prod_{j \neq k} {x_j}^N_{jk}^\mathrm{out}
+
+                        for(size_t j=0; j<rns.sp.size(); ++j) {
+                            if(j != l && rns.N_in(j,k) != 0)
+                                p1 *= x(j);
+    
+                            if(j != l && rns.N_out(j,k) != 0)
+                                p2 *= x(j);
+                        } 
+                      
+                        s += rns.N(i,k)*rns.e_m_bEa(k)*(rns.e_bs_in(k)*rns.N_in(l,k)*pow(x(l), rns.N_in(l,k)-1)*p1 - 
+                                                        rns.e_bs_out(k)*rns.N_out(l,k)*pow(x(l),rns.N_out(l,k)-1)*p2);              
+                    }                    
+
+                    J(i,l) = s;
+                }
+            }                               
+
+
+            dfdt = vector_type(x.size());
         }
     };
 
@@ -132,20 +160,38 @@ public:
                             return re.get_no_educt() == 1 && re.get_no_product() == 0 || 
                                    re.get_no_educt() == 0 && re.get_no_product() == 1; });
 		
-	
+        // Calculate stoichiometric matrices, activation energies and their logarithms...
+        N_in = N_out = boost::numeric::ublas::zero_matrix<double>(sp.size(), re.size());
+        Ea =  e_bs_in = e_bs_out = e_m_bEa = boost::numeric::ublas::zero_vector<double>(re.size());
+        mu0 = boost::numeric::ublas::zero_vector<double>(sp.size());
 
 
+        for(size_t i=0; i<sp.size(); ++i)
+            mu0(i) = sp[i].get_energy();
 
-        //matrix_type_int N, N_in, N_out;
-        // TODO: fill these matrices
 
+        for(size_t i=0; i<re.size(); ++i) {
+            double mu0_educts(0), mu0_products(0);
+
+            for(size_t j=0; j<re[i].get_no_educt_s(); ++j) {
+                size_t id(re[i].get_educt_id(j)),  mul(re[i].get_educt_mul(j));
+                N_in(id,i) += mul;
+                mu0_educts += sp[id].get_energy()*mul;
+            }
+
+            for(size_t j=0; j<re[i].get_no_product_s(); ++j) {
+                size_t id(re[i].get_product_id(j)),  mul(re[i].get_product_mul(j));
+                N_out(id,i) += mul;
+                mu0_products += sp[id].get_energy()*mul;
+            }
+
+            Ea(i) = re[i].get_activation()+max(mu0_educts,mu0_products);
+            e_bs_in(i) = exp(beta*mu0_educts);
+            e_bs_out(i) = exp(beta*mu0_products);
+            e_m_bEa(i) = exp(-beta*Ea(i));
+        }
         
-
-
-        //vector_type Ea, mu0, e_bs_in, e_bs_out;
-        // TODO: fill these vectors
-
-
+        N = N_in-N_out;
 
         
         // Read last line of concentration file and write initial concentration to initial_con
