@@ -57,9 +57,10 @@ class reaction_network_system {
     double initial_t, last_write;
     std::vector<species> sp;
     std::vector<reaction> re;
-    vector_type initial_con;
+    vector_type initial_con, initial_rate;
     std::string fn_concentration;
-
+    
+    bool write_rate;
     matrix_type_int N, N_in, N_out;
     vector_type Ea, mu0, e_bs_in, e_bs_out, e_m_bEa;
 
@@ -148,8 +149,8 @@ public:
 
 
 
-    reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_) 
-        : fn_concentration(fn_concentration_), beta(1)  {
+    reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_, bool write_rate_=false) 
+        : fn_concentration(fn_concentration_), beta(1), write_rate(write_rate_)  {
         
         read_jrnf_reaction_n(fn_network, sp, re);
     
@@ -197,6 +198,7 @@ public:
         // Read last line of concentration file and write initial concentration to initial_con
         // and initial time to initial_t. After done open the same file for appending...
         initial_con = boost::numeric::ublas::zero_vector<double>(sp.size());
+        initial_rate = boost::numeric::ublas::zero_vector<double>(re.size());
 
         std::ifstream  data(fn_concentration.c_str());
 
@@ -225,7 +227,9 @@ public:
                     in >> last_msd;                
                 else if(cnt <= sp.size()+1)
                     in >> initial_con(cnt-2);
-                else 
+                else if(cnt <= sp.size()+re.size()+1  && write_rate) 
+                    in >> initial_rate(cnt-re.size()-2);
+                else
                     std::cout << "Error at reading csv / concentration file!" << std::endl;
 
                 ++cnt;
