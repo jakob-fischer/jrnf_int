@@ -94,6 +94,12 @@ public:
             for(size_t k=0; k<x.size(); ++k)
                 if(rns.sp[k].is_constant())
                     dxdt(k) = 0;
+
+            cout << "DXDT: " << std::endl;
+            for(size_t i=0; i<dxdt.size(); ++i)
+                cout << dxdt(i) << "  ";
+            cout << endl;
+
         }
     };
 
@@ -258,10 +264,22 @@ public:
         //integrate( next_step , x , initial_t , Tmax , deltaT , write_state );
 
         vector_type x(initial_con);
-
+         
+        for(size_t i=0; i<x.size(); ++i)
+            cout << x(i) << "  ";
+        cout << endl;
 
         auto write_state = [this]( const vector_type &vec , const double t ) {
-            cout << t << "," << vec[0] << "," << vec[1] << endl;
+            //cout << t << ",1";
+
+//            for(size_t l=0; l<vec.size(); ++l)
+  //              cout << "," << vec[l];
+    //         cout << std::endl;
+
+            cout << "CONCENTRATION:" << std::endl;
+        for(size_t i=0; i<vec.size(); ++i)
+            cout << vec(i) << "  ";
+        cout << endl;
         };
 
 
