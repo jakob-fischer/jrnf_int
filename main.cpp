@@ -76,25 +76,24 @@ public:
          */
 
         void operator()( const vector_type &x , vector_type &dxdt , double /* t */ ) {
-            vector_type a2(x.size()), a3(x.size());
-            
+            vector_type a2(rns.re.size()), a3(rns.re.size());
             for(size_t k=0; k<x.size(); ++k) {
                 a2(k) = 1;
                 for(size_t j=0; j<rns.N.size2(); ++j) 
-                    if(rns.N_in(j,k) != 0) 
-                        a2(k) *= pow(x(j), rns.N_in(j,k));
-                    
+                   if(rns.N_in(k,j) != 0) 
+                       a2(j) *= pow(x(k), rns.N_in(k,j));
+
                 a3(k) = 1; 
                 for(size_t j=0; j<rns.N.size2(); ++j) 
-                    if(rns.N_out(j,k) != 0) 
-                        a3(k) *= pow(x(j), rns.N_out(j,k));
-            }          
+                    if(rns.N_out(k,j) != 0) 
+                        a3(j) *= pow(x(k), rns.N_out(k,j));
+            }         
 
-             dxdt = prod(rns.N, element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out)));
+            dxdt = prod(rns.N, element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out)));
 
-             for(size_t k=0; k<x.size(); ++k)
-                 if(rns.sp[k].is_constant())
-                     dxdt(k) = 0;
+            for(size_t k=0; k<x.size(); ++k)
+                if(rns.sp[k].is_constant())
+                    dxdt(k) = 0;
         }
     };
 
@@ -262,7 +261,6 @@ public:
 
 
         auto write_state = [this]( const vector_type &vec , const double t ) {
-            cout << "initial_t=" << initial_t << endl;
             cout << t << "," << vec[0] << "," << vec[1] << endl;
         };
 
