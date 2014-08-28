@@ -95,9 +95,9 @@ public:
                 if(rns.sp[k].is_constant())
                     dxdt(k) = 0;
 
-            cout << "DXDT: " << std::endl;
-            for(size_t i=0; i<dxdt.size(); ++i)
-                cout << dxdt(i) << "  ";
+            //cout << "DXDT: " << std::endl;
+            //for(size_t i=0; i<dxdt.size(); ++i)
+            //    cout << dxdt(i) << "  ";
             cout << endl;
 
         }
@@ -249,6 +249,19 @@ public:
     }
 
 
+    void print_rhs(size_t t=0) {
+        vector_type x(initial_con);
+        vector_type dxdt=boost::numeric::ublas::zero_vector<double>(sp.size());
+ 
+        // calculate rhs
+        stiff_system(*this)(x, dxdt, t);
+
+        cout << "righthandside:" << endl;
+        for(size_t i=0; i<dxdt.size(); ++i)
+            cout << "/  " << dxdt(i) << "  /";
+        cout << endl;
+    }
+
 
     void run(double Tmax=25000, double deltaT=0.1, double wint=1000, 
              bool write_rates=false, bool solve_implicit=true) {
@@ -332,6 +345,29 @@ int main(int argc, const char *argv []){
     // Simulates / integrates a reaction network while holding the boundary point 
     // species (constant=true) constant
     // under development...
+
+
+    if(cl.have_param("print_rhs")) {
+        std::string fn_network, fn_concentration;      
+
+        if(cl.have_param("net")) 
+            fn_network=cl.get_param("net");
+        else {
+            cout << "You have to give the name of reaction network by 'net'!" << endl;  
+            return 1;
+        }
+    
+        if(cl.have_param("con")) 
+            fn_concentration=cl.get_param("con");
+        else {
+            cout << "You have to give the name of the concentration file by 'con'!" << endl;   
+            return 1;
+        }
+
+        reaction_network_system rns = reaction_network_system(fn_network, fn_concentration); 
+        rns.print_rhs(0);
+    }  
+
 
     if(cl.have_param("simsim_dev")) {
         std::string fn_network, fn_concentration;      
