@@ -189,6 +189,125 @@ int main(int argc, const char *argv []){
     
     cl_para cl(argc, argv);
     
+    
+    if(cl.have_param("print_rhs")) {
+        // Simulates / integrates a reaction network while holding the boundary point 
+        // species (constant=true) constant
+      
+        if(!cl.have_param("net")) {
+            cout << "You have to give the name of reaction network by 'net'!" << endl;  
+            return 1;
+        }
+    
+        if(!cl.have_param("con")) {
+            cout << "You have to give the name of the concentration file by 'con'!" << endl;   
+            return 1;
+        }
+
+        std::string fn_network=cl.get_param("net");
+        std::string fn_concentration=cl.get_param("con");
+            
+        read_jrnf_reaction_n(fn_network, sp, re);
+    
+	
+	// Remove 1-0 and 0-1 reactions which are with constant species. Such reactions are
+	// there to ballance flow over the boundary conditions
+        std::remove_if (re.begin(), re.end(), is_10or01_reaction);
+		
+	
+        // Checking that there are only 2-2 and 1-1 reactions. Also bring all 2-2 reactions
+	// into a normal form.
+
+
+
+        for(size_t i=0; i<re.size(); ++i) {
+            if(re[i].get_no_educt() == 2 && re[i].get_no_product() == 2) {
+	            bi_reaction.push_back(true);  
+	        
+		        if(re[i].get_no_educt_s() == 1) {
+	                re[i].add_educt_s(re[i].get_educt_id(0));
+		            re[i].set_educt_mul(0,1.0);
+		        }
+	    
+	            if(re[i].get_no_product_s() == 1) {
+	                re[i].add_product_s(re[i].get_product_id(0));	   
+		            re[i].set_product_mul(0,1.0);
+	            }
+	        } else if(re[i].get_no_educt() == 1 && re[i].get_no_product() == 1) {
+	            bi_reaction.push_back(false);
+	        } else {
+	            cout << "Reaction " << i << " : invalid reaction. Only 1-1 and 2-2 r. allowed!" << endl;
+		        cout << re[i].get_string() << endl;
+	            return 1;
+	        }
+        }
+
+        
+        // Read last line of concentration file and write initial concentration to initial_con
+        // and initial time to initial_t. After done open the same file for appending...
+        for(size_t i=0; i<sp.size(); ++i) 
+            initial_con.push_back(0.0);
+
+        std::ifstream  data(fn_concentration.c_str());
+
+        if(!data.good()) {
+           std::cout << "Could not open concentration file: " << fn_concentration << std::endl;
+           return 0;
+        }
+
+        std::string line;
+        std::getline(data,line);       // dont want the header
+        double last_msd=0;
+
+        // the real 
+        while(!std::getline(data,line).eof()) {
+            std::stringstream ls(line);
+            std::string cell;
+                 
+            //cout << "line: " << line << std::endl;           
+   
+            size_t cnt=0;
+            while(std::getline(ls,cell,',')) {
+                std::stringstream in(cell);       
+    
+    
+                if(cnt == 0) 
+                    in >> initial_t ;
+                else if(cnt == 1)
+                    in >> last_msd;                
+                else if(cnt <= sp.size()+1)
+                    in >> initial_con[cnt-2];
+                else 
+                    std::cout << "Error at reading csv / concentration file!" << std::endl;
+
+                ++cnt;
+            }
+        }
+
+        std::cout << "Loaded concentration file with starting time " << initial_t << std::endl;
+
+          
+        data.close();
+        out.open(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
+
+        // Init solver and start
+        state_type x, dxdt;
+        init_state(x);
+        for(size_t i=0; i<sp.size(); ++i)
+            dxdt.push_back(0);
+
+        cout << "calculating step..." << endl;
+
+        // calculate rhs
+        next_step( x, dxdt, 0);
+
+        cout << "righthandside:" << endl;
+        for(size_t k=0; k < sp.size(); ++k)
+            cout << "/  " << dxdt[k] << "  /";
+        cout << endl;
+    }  
+    
+
     if(cl.have_param("simsim")) {
         // Simulates / integrates a reaction network while holding the boundary point 
         // species (constant=true) constant
