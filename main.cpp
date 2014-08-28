@@ -77,16 +77,17 @@ public:
 
         void operator()( const vector_type &x , vector_type &dxdt , double /* t */ ) {
             vector_type a2(rns.re.size()), a3(rns.re.size());
-            for(size_t k=0; k<x.size(); ++k) {
-                a2(k) = 1;
-                for(size_t j=0; j<rns.N.size2(); ++j) 
-                   if(rns.N_in(k,j) != 0) 
-                       a2(j) *= pow(x(k), rns.N_in(k,j));
+            for(size_t j=0; j<rns.N.size2(); ++j) { 
+                a2(j) = 1;
+                a3(j) = 1; 
 
-                a3(k) = 1; 
-                for(size_t j=0; j<rns.N.size2(); ++j) 
+                for(size_t k=0; k<x.size(); ++k) {             
+                    if(rns.N_in(k,j) != 0) 
+                        a2(j) *= pow(x(k), rns.N_in(k,j));
+
                     if(rns.N_out(k,j) != 0) 
                         a3(j) *= pow(x(k), rns.N_out(k,j));
+                }
             }         
 
 
@@ -95,20 +96,20 @@ public:
             vector_type k_b=element_prod(rns.e_m_bEa, rns.e_bs_out);
 
             // print x
-            cout << "concentration:" << endl;
-            for(size_t i=0; i<x.size(); ++i)
-                cout << "/  " << x(i) << "  /";
+            //cout << "concentration:" << endl;
+            //for(size_t i=0; i<x.size(); ++i)
+            //    cout << "/  " << x(i) << "  /";
 
 
 
             // print forward and backward reaction constants...
-            cout << "k_forward" << endl;
-            for(size_t i=0; i<k_f.size(); ++i)
-                cout << "/  " << k_f(i) << "  /";
-            cout << endl << "k_backward" << endl;
-            for(size_t i=0; i<k_b.size(); ++i)
-                cout << "/  " << k_b(i) << "  /";
-            cout << endl;
+            //cout << "k_forward" << endl;
+            //for(size_t i=0; i<k_f.size(); ++i)
+            //    cout << "/  " << k_f(i) << "  /";
+            //cout << endl << "k_backward" << endl;
+            //for(size_t i=0; i<k_b.size(); ++i)
+            //    cout << "/  " << k_b(i) << "  /";
+            //cout << endl;
 
 
 
@@ -122,7 +123,7 @@ public:
             //cout << "DXDT: " << std::endl;
             //for(size_t i=0; i<dxdt.size(); ++i)
             //    cout << dxdt(i) << "  ";
-            cout << endl;
+            //cout << endl;
 
         }
     };
@@ -306,17 +307,12 @@ public:
             cout << x(i) << "  ";
         cout << endl;
 
-        auto write_state = [this]( const vector_type &vec , const double t ) {
-            //cout << t << ",1";
+        auto write_state = [this, &out]( const vector_type &vec , const double t ) {
+            out << t << ",1";
 
-//            for(size_t l=0; l<vec.size(); ++l)
-  //              cout << "," << vec[l];
-    //         cout << std::endl;
-
-            cout << "CONCENTRATION:" << std::endl;
-        for(size_t i=0; i<vec.size(); ++i)
-            cout << vec(i) << "  ";
-        cout << endl;
+            for(size_t l=0; l<vec.size(); ++l)
+                out << "," << vec(l);
+            out << std::endl;
         };
 
 
