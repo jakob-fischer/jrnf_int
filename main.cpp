@@ -68,6 +68,12 @@ void next_step( const state_type &vec , state_type &dxdt , double t ) {
     for(size_t i=0; i<sp.size(); ++i) 
         dxdt[i]=0;
     
+    // print concentration
+    cout << "concentration:" << endl;
+    for(size_t i=0; i<vec.size(); ++i)
+        cout << "/  " << vec[i] << "  /";
+    cout << endl;
+
     // print forward and backward reaction constants...
     cout << "k_forward" << endl;
     for(size_t i=0; i<re.size(); ++i)
@@ -75,6 +81,7 @@ void next_step( const state_type &vec , state_type &dxdt , double t ) {
     cout << endl << "k_backward" << endl;
     for(size_t i=0; i<re.size(); ++i)
         cout << "/  " << re[i].get_k_b() << "  /";
+    cout << endl;
 
     for(size_t i=0; i<re.size(); ++i) {
         double rate_f=re[i].get_k()*vec[re[i].get_educt_id(0)];
