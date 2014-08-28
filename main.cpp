@@ -222,7 +222,7 @@ public:
             e_m_bEa(i) = exp(-beta*Ea(i));
         }
         
-        N = N_in-N_out;
+        N = N_out-N_in;
 
         
         // Read last line of concentration file and write initial concentration to initial_con
