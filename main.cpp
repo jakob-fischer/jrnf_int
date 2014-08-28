@@ -89,6 +89,30 @@ public:
                         a3(j) *= pow(x(k), rns.N_out(k,j));
             }         
 
+
+
+            vector_type k_f=element_prod(rns.e_m_bEa, rns.e_bs_in);
+            vector_type k_b=element_prod(rns.e_m_bEa, rns.e_bs_out);
+
+            // print x
+            cout << "concentration:" << endl;
+            for(size_t i=0; i<x.size(); ++i)
+                cout << "/  " << x(i) << "  /";
+
+
+
+            // print forward and backward reaction constants...
+            cout << "k_forward" << endl;
+            for(size_t i=0; i<k_f.size(); ++i)
+                cout << "/  " << k_f(i) << "  /";
+            cout << endl << "k_backward" << endl;
+            for(size_t i=0; i<k_b.size(); ++i)
+                cout << "/  " << k_b(i) << "  /";
+            cout << endl;
+
+
+
+
             dxdt = prod(rns.N, element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out)));
 
             for(size_t k=0; k<x.size(); ++k)
