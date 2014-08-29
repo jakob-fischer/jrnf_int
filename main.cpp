@@ -57,7 +57,7 @@ class reaction_network_system {
     double initial_t, last_write;
     std::vector<species> sp;
     std::vector<reaction> re;
-    vector_type initial_con, initial_rate;
+    vector_type initial_con, initial_rate, last_flow;
     std::string fn_concentration;
     
     bool write_rate;
@@ -66,9 +66,9 @@ class reaction_network_system {
 
 public:
     struct stiff_system {
-        const reaction_network_system& rns;
+        reaction_network_system& rns;
 
-        stiff_system(const reaction_network_system& rns_) : rns(rns_)  {}
+        stiff_system(reaction_network_system& rns_) : rns(rns_)  {}
 
         /*
          * Prototype for the rhs of ODE
@@ -95,36 +95,12 @@ public:
             vector_type k_f=element_prod(rns.e_m_bEa, rns.e_bs_in);
             vector_type k_b=element_prod(rns.e_m_bEa, rns.e_bs_out);
 
-            // print x
-            //cout << "concentration:" << endl;
-            //for(size_t i=0; i<x.size(); ++i)
-            //    cout << "/  " << x(i) << "  /";
-
-
-
-            // print forward and backward reaction constants...
-            //cout << "k_forward" << endl;
-            //for(size_t i=0; i<k_f.size(); ++i)
-            //    cout << "/  " << k_f(i) << "  /";
-            //cout << endl << "k_backward" << endl;
-            //for(size_t i=0; i<k_b.size(); ++i)
-            //    cout << "/  " << k_b(i) << "  /";
-            //cout << endl;
-
-
-
-
-            dxdt = prod(rns.N, element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out)));
+            rns.last_flow = element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out));
+            dxdt = prod(rns.N, rns.last_flow);
 
             for(size_t k=0; k<x.size(); ++k)
                 if(rns.sp[k].is_constant())
                     dxdt(k) = 0;
-
-            //cout << "DXDT: " << std::endl;
-            //for(size_t i=0; i<dxdt.size(); ++i)
-            //    cout << dxdt(i) << "  ";
-            //cout << endl;
-
         }
     };
 
@@ -166,11 +142,13 @@ public:
                     }                    
 
                     J(i,l) = s;
+                    if(rns.sp[i].is_constant())
+                        J(i,l) = 0;
                 }
             }                               
 
 
-            dfdt = vector_type(x.size());
+            dfdt = boost::numeric::ublas::zero_vector<double>(x.size());
         }
     };
 
@@ -229,6 +207,7 @@ public:
         // and initial time to initial_t. After done open the same file for appending...
         initial_con = boost::numeric::ublas::zero_vector<double>(sp.size());
         initial_rate = boost::numeric::ublas::zero_vector<double>(re.size());
+        last_flow = boost::numeric::ublas::zero_vector<double>(re.size());
 
         std::ifstream  data(fn_concentration.c_str());
 
@@ -257,8 +236,8 @@ public:
                     in >> last_msd;                
                 else if(cnt <= sp.size()+1)
                     in >> initial_con(cnt-2);
-                else if(cnt <= sp.size()+re.size()+1  && write_rate) 
-                    in >> initial_rate(cnt-re.size()-2);
+                else if(cnt <= sp.size()+re.size()+1  && write_rate)
+                    in >> initial_rate(cnt-sp.size()-2);
                 else
                     std::cout << "Error at reading csv / concentration file!" << std::endl;
 
@@ -297,21 +276,19 @@ public:
         size_t t0 = time(NULL);
 
         // Init solver and start
-    
-        //init_state(x);
-        //integrate( next_step , x , initial_t , Tmax , deltaT , write_state );
-
         vector_type x(initial_con);
+        last_flow = initial_rate;
          
-        for(size_t i=0; i<x.size(); ++i)
-            cout << x(i) << "  ";
-        cout << endl;
-
-        auto write_state = [this, &out]( const vector_type &vec , const double t ) {
+        auto write_state = [this, &out, write_rates]( const vector_type &vec , const double t ) {
             out << t << ",1";
 
             for(size_t l=0; l<vec.size(); ++l)
                 out << "," << vec(l);
+
+            if(write_rates)
+                for(size_t l=0; l<last_flow.size(); ++l)
+                    out << "," << last_flow(l);
+ 
             out << std::endl;
         };
 
@@ -335,7 +312,7 @@ public:
         write_state(x, Tmax);
 
         size_t t1 = time(NULL);
-        std::cout << "Run took " << t1-t0 << " seconds!" << std::endl;
+        std::cout << "Run took " << t1-t0 << " seconds and " << step_no << " steps!" << std::endl;
 
         out.close();
    }
@@ -415,7 +392,7 @@ int main(int argc, const char *argv []){
             
         std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax << std::endl;
 
-        reaction_network_system rns = reaction_network_system(fn_network, fn_concentration); 
+        reaction_network_system rns = reaction_network_system(fn_network, fn_concentration, write_rates); 
         rns.run(Tmax, deltaT, wint, write_rates, solve_implicit);
     }  
     
