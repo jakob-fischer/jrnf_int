@@ -54,7 +54,7 @@ typedef boost::numeric::ublas::matrix< int > matrix_type_int;
 
 class reaction_network_system {
     double beta;
-    double initial_t, last_write;
+    double initial_t, last_write, last_msd;
     std::vector<species> sp;
     std::vector<reaction> re;
     vector_type initial_con, initial_rate, last_flow;
@@ -101,6 +101,12 @@ public:
             for(size_t k=0; k<x.size(); ++k)
                 if(rns.sp[k].is_constant())
                     dxdt(k) = 0;
+
+            // square all elements of dxdt and calculate the mean  (to analyze convergence later)
+            rns.last_msd = 0;
+            for(size_t i=0; i<dxdt.size(); ++i)
+                rns.last_msd += dxdt(i)*dxdt(i);
+            rns.last_msd /= dxdt.size();
         }
     };
 
@@ -158,7 +164,7 @@ public:
 
 
     reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_, bool write_rate_=false) 
-        : fn_concentration(fn_concentration_), beta(1), write_rate(write_rate_)  {
+        : fn_concentration(fn_concentration_), beta(1), last_msd(0), write_rate(write_rate_)  {
         
         read_jrnf_reaction_n(fn_network, sp, re);
     
@@ -280,7 +286,7 @@ public:
         last_flow = initial_rate;
          
         auto write_state = [this, &out, write_rates]( const vector_type &vec , const double t ) {
-            out << t << ",1";
+            out << t << "," << last_msd;
 
             for(size_t l=0; l<vec.size(); ++l)
                 out << "," << vec(l);
