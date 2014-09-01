@@ -1,0 +1,6 @@
+[submodule "tools"]
+	path = tools
+	url = git@github.com:jakob-fischer/tools_lib.git
+[submodule "net_tools"]
+	path = net_tools
+	url = git@github.com:jakob-fischer/net_tools_lib.git
