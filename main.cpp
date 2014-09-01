@@ -1,23 +1,21 @@
 /* author: jakob fischer (jakob@automorph.info)
- * date: 22nd March 2013
  * description: 
  * Tool for solving a ODE for a reaction system given as an jrnf-file. The concentration and time
  * are read and written from / to a comma seperated file. Every row / line represents one time step.
- * the first column contains the time of this step, the second the msd per specie number and time
- * step from the previous step...
+ * the first column contains the time of this step, the second the mean of the quadratic change 
+ * (<f(x)> ;dx/dt = f(x)). Then follow the concentrations of all species. If the program is called with
+ * the option 'write_rates' this is followed by the effective rates of all reactions.
+ *
  * 
- * TODO Implement and comment
- * 
- * TODO Extend so concentration can be taken from external file (allowing for example periodic 
+ * TODO Extend so boundary concentration can be taken from external file (allowing for example periodic 
  *      boundary conditions)
  *
  * TODO Increase precission by only calculating effective flow and not forward- and backward-flow 
- *      independently
- * 
- * TODO Use implicit solver from odeint...
+ *      independently...  (Not sure if this is possible)
  *
- * TODO In connection with function to calculate effective rates, extend file format to contain
- *      concentrations (N values) and effective rates (M values)
+ *      This version of the program calculates forward and backward reaction rates from formation enthalpies
+ *      and activation energies given in the network description. (\beta = 1/(k_b T) = 1)
+ * TODO Make this optional + Allow choosing \beta at startup
  */
 
 #include <iostream>
@@ -42,9 +40,11 @@ using namespace boost::numeric::odeint;
 #define GIT_VERSION "no version"
 #endif
 
+const string odeint_rnet_version_string="0x00x04";
 
 
-//[ stiff_system_definition
+
+// 
 typedef boost::numeric::ublas::vector< double > vector_type;
 typedef boost::numeric::ublas::matrix< double > matrix_type;
 typedef boost::numeric::ublas::matrix< int > matrix_type_int;
@@ -121,7 +121,7 @@ public:
 
         /*
          * Prototype for the Jacobi-Matrix of the ODE
-         * TODO: test + speed up + check if matrix has to be transposed
+         * TODO: test + speed up 
          */
 
         void operator()( const vector_type & x  , matrix_type &J , const double & /* t */ , vector_type &dfdt ) {
@@ -273,8 +273,7 @@ public:
     }
 
 
-    void run(double Tmax=25000, double deltaT=0.1, double wint=1000, 
-             bool write_rates=false, bool solve_implicit=true) {
+    void run(double Tmax=25000, double deltaT=0.1, bool write_rates=false, bool solve_implicit=true) {
                 
         fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
         out.precision(25);
@@ -322,33 +321,19 @@ public:
 
         out.close();
    }
-
-
-
 };
-
-
-
-
-
-
-
-
-
-
 
 
 
 int main(int argc, const char *argv []){
     srand(time(0));
-    std::cout << "odeint_rnet version 0x00x04 (commit:" << GIT_VERSION << ")" << std::endl;
+    std::cout << "odeint_rnet version " << odeint_rnet_version_string << " (commit:" 
+              << GIT_VERSION << ")" << std::endl;
     
     cl_para cl(argc, argv);
     
-    // Simulates / integrates a reaction network while holding the boundary point 
-    // species (constant=true) constant
-    // under development...
 
+    // Prints the right hand side of the ODE (f(x)) for diagnostic purposes.
 
     if(cl.have_param("print_rhs")) {
         std::string fn_network, fn_concentration;      
@@ -367,12 +352,16 @@ int main(int argc, const char *argv []){
             return 1;
         }
 
+        // load network and concentration file
         reaction_network_system rns = reaction_network_system(fn_network, fn_concentration); 
-        rns.print_rhs(0);
+        rns.print_rhs(0);  // time is 0 (doesn't matter)
     }  
 
 
-    if(cl.have_param("simsim_dev")) {
+    // Simulates / integrates a reaction network while holding the boundary point 
+    // species (constant=true) constant
+    
+    if(cl.have_param("simulate")) {
         std::string fn_network, fn_concentration;      
 
         if(cl.have_param("net")) 
@@ -389,17 +378,24 @@ int main(int argc, const char *argv []){
             return 1;
         }
 
-        double deltaT = cl.have_param("deltaT") ? cl.get_param_d("deltaT") : 0.1;   
+        double deltaT = cl.have_param("deltaT") ? cl.get_param_d("deltaT") : 10;   
         double Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;
-        double wint = cl.have_param("wint") ? cl.get_param_i("wint") : 1000;
         bool write_rates=cl.have_param("write_rates");
         bool solve_implicit=cl.have_param("solve_implicit");            
 
             
         std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax << std::endl;
+        if(write_rates) 
+            cout << "Output contains reactions' effective rates." << endl;
 
+        if(solve_implicit)
+            cout << "Stiff solver is used!" << endl;
+
+        // Load reaction network and concentration file
         reaction_network_system rns = reaction_network_system(fn_network, fn_concentration, write_rates); 
-        rns.run(Tmax, deltaT, wint, write_rates, solve_implicit);
+
+        // Simulate ODE (and write results to file)
+        rns.run(Tmax, deltaT, write_rates, solve_implicit);
     }  
     
     
@@ -407,8 +403,16 @@ int main(int argc, const char *argv []){
         cout << "          odeint_rnet" << endl;  
         cout << "          ===========" << endl;
         cout << " call with parameter 'info' or 'help' for showing this screen" << endl;
+        cout << "current version is " << odeint_rnet_version_string << " (commit:" << GIT_VERSION << ")" << endl;
         cout << endl;
-        cout << "-'simsim_dev' load reaction network 'net' and simulate file 'con'!. Parameters are 'deltaT', and 'Tmax'." << endl;
+        cout << "-'print_rhs': load reaction network 'net', (last) concentration in 'con'! and" << endl;
+        cout << "prints  right hand side of ode for diagnostic purposes." << endl;
+	cout << endl;
+        cout << "-'simulate': load reaction network 'net' and simulate file 'con'!. Parameters are:" << endl;
+        cout << "   x'deltaT': Interval in which concentrations are saved to file 'con'" << endl;
+        cout << "   x'Tmax': Time up to which the system is simulated" << endl;
+        cout << "   x'write_rates': 'con' file contains effective reaction rates" << endl;
+        cout << "   x'solve_implicit': use stiff solver" << endl;
 	cout << endl;
     } 
 }

@@ -33,13 +33,13 @@ class species {
     // Integer id
     size_t id;
     
-    // 0 == standard   //  1 == monitoring heat species
+    // 0 == standard   // type might be used later
     size_t type;    
     
     // Is this species going to stay constant 
     bool constant;
     
-    // Bind-Enthalpy of this species
+    // Formation-Enthalpy of this species
     double energy;
     
     // Name / Identifier of the species
@@ -1087,7 +1087,7 @@ void filter_r_network_s(std::vector<species> &sp_in, std::vector<reaction> &re_i
 /*
  * This macro function filters a network removing the species with name 'dump'.
  * This function does not delete the species from the reactions containing
- * it but deletes all those reactions all together.
+ * it but deletes all those reactions alltogether.
  */
       
 void filter_r_network_r(std::vector<species> &sp_in, std::vector<reaction> &re_in_,  

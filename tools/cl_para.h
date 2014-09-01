@@ -1,7 +1,7 @@
 /* author: jakob fischer (jakob@automorph.info)
  * date: 9th February 2013
  * description: 
- * Includes class for handling C++ console parameters.
+ * Contains class for handling C++ console parameters.
  */
 
 #ifndef CL_PARA_H
