@@ -57,7 +57,7 @@ class reaction_network_system {
     double initial_t, last_write, last_msd;
     std::vector<species> sp;
     std::vector<reaction> re;
-    vector_type initial_con, initial_rate, last_flow;
+    vector_type initial_con, initial_rate;
     std::string fn_concentration;
     
     bool write_rate;
@@ -69,6 +69,32 @@ public:
         reaction_network_system& rns;
 
         stiff_system(reaction_network_system& rns_) : rns(rns_)  {}
+
+
+        /*
+         * 
+         */
+
+        void calculate_rates(const vector_type &x, vector_type &rates) {
+            vector_type a2(rns.re.size()), a3(rns.re.size());
+            for(size_t j=0; j<rns.N.size2(); ++j) { 
+                a2(j) = 1;
+                a3(j) = 1; 
+
+                for(size_t k=0; k<x.size(); ++k) {             
+                    if(rns.N_in(k,j) != 0) 
+                        a2(j) *= pow(x(k), rns.N_in(k,j));
+
+                    if(rns.N_out(k,j) != 0) 
+                        a3(j) *= pow(x(k), rns.N_out(k,j));
+                }
+            }         
+
+            vector_type k_f=element_prod(rns.e_m_bEa, rns.e_bs_in);
+            vector_type k_b=element_prod(rns.e_m_bEa, rns.e_bs_out);
+
+            rates = element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out));
+        }
 
         /*
          * Prototype for the rhs of ODE
@@ -95,8 +121,7 @@ public:
             vector_type k_f=element_prod(rns.e_m_bEa, rns.e_bs_in);
             vector_type k_b=element_prod(rns.e_m_bEa, rns.e_bs_out);
 
-            rns.last_flow = element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out));
-            dxdt = prod(rns.N, rns.last_flow);
+            dxdt = prod(rns.N, element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out)));
 
             for(size_t k=0; k<x.size(); ++k)
                 if(rns.sp[k].is_constant())
@@ -213,7 +238,6 @@ public:
         // and initial time to initial_t. After done open the same file for appending...
         initial_con = boost::numeric::ublas::zero_vector<double>(sp.size());
         initial_rate = boost::numeric::ublas::zero_vector<double>(re.size());
-        last_flow = boost::numeric::ublas::zero_vector<double>(re.size());
 
         std::ifstream  data(fn_concentration.c_str());
 
@@ -282,7 +306,6 @@ public:
 
         // Init solver and start
         vector_type x(initial_con);
-        last_flow = initial_rate;
          
         auto write_state = [this, &out, write_rates]( const vector_type &vec , const double t ) {
             out << t << "," << last_msd;
@@ -290,10 +313,15 @@ public:
             for(size_t l=0; l<vec.size(); ++l)
                 out << "," << vec(l);
 
-            if(write_rates)
-                for(size_t l=0; l<last_flow.size(); ++l)
-                    out << "," << last_flow(l);
- 
+            if(write_rates) {
+                // have to calculate rates for actual x first (x may be interpolated)!
+                vector_type rates=boost::numeric::ublas::zero_vector<double>(re.size());
+                stiff_system(*this).calculate_rates(vec, rates);
+
+                for(size_t l=0; l<rates.size(); ++l)
+                    out << "," << rates(l);
+            }
+
             out << std::endl;
         };
 
