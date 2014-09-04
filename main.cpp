@@ -62,6 +62,7 @@ class reaction_network_system {
     
     bool write_rate;
     matrix_type_int N, N_in, N_out;
+    std::vector< std::vector<size_t> > N_in_list, N_out_list;
     vector_type Ea, mu0, e_bs_in, e_bs_out, e_m_bEa;
 
 public:
@@ -99,6 +100,10 @@ public:
         /*
          * Prototype for the rhs of ODE
          * TODO: test + speed up
+         *   Especially this part can be made faster (by keeping a list instead of iterating
+         *   all species:
+         *                   for(size_t k=0; k<x.size(); ++k) {             
+         *                       if(rns.N_in(k,j) != 0) 
          */
 
         void operator()( const vector_type &x , vector_type &dxdt , double /* t */ ) {
@@ -230,9 +235,24 @@ public:
             e_bs_out(i) = exp(beta*mu0_products);
             e_m_bEa(i) = exp(-beta*Ea(i));
         }
-        
+
         N = N_out-N_in;
 
+        /* Build lists (for speedup)
+         */
+        
+        for(size_t i=0; i<re.size(); ++i) {
+            N_in_list.push_back(std::vector<size_t>());
+            N_out_list.push_back(std::vector<size_t>());
+
+            for(size_t j=0; j<sp.size(); ++j) {
+                if(N_in(j,i) != 0)
+                    N_in_list[i].push_back(j);
+
+                if(N_out(j,i) != 0)
+                    N_out_list[i].push_back(j);
+            }
+        }
         
         // Read last line of concentration file and write initial concentration to initial_con
         // and initial time to initial_t. After done open the same file for appending...
