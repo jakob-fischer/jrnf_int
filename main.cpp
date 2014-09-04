@@ -112,13 +112,12 @@ public:
                 a2(j) = 1;
                 a3(j) = 1; 
 
-                for(size_t k=0; k<x.size(); ++k) {             
-                    if(rns.N_in(k,j) != 0) 
-                        a2(j) *= pow(x(k), rns.N_in(k,j));
+                for(size_t l=0; l<rns.N_in_list[j].size(); ++l) 
+                        a2(j) *= pow(x(rns.N_in_list[j][l]), rns.N_in(rns.N_in_list[j][l],j));
 
-                    if(rns.N_out(k,j) != 0) 
-                        a3(j) *= pow(x(k), rns.N_out(k,j));
-                }
+                for(size_t l=0; l<rns.N_out_list[j].size(); ++l) 
+                        a3(j) *= pow(x(rns.N_out_list[j][l]), rns.N_out(rns.N_out_list[j][l],j));
+
             }         
 
 
@@ -165,10 +164,16 @@ public:
                         double p1(1), p2(1);    // p1 = \prod_{j \neq k} {x_j}^N_{jk}^\mathrm{in}
                                                 // p2 = \prod_{j \neq k} {x_j}^N_{jk}^\mathrm{out}
 
-                        for(size_t j=0; j<rns.sp.size(); ++j) {
-                            if(j != l && rns.N_in(j,k) != 0)
+                        for(size_t m=0; m<rns.N_in_list[k].size(); ++m) {
+                            size_t j=rns.N_in_list[k][m];
+                            
+                            if(j != l)
                                 p1 *= x(j);
+                        }
     
+                        for(size_t m=0; m<rns.N_out_list[k].size(); ++m) {
+                            size_t j=rns.N_out_list[k][m];
+
                             if(j != l && rns.N_out(j,k) != 0)
                                 p2 *= x(j);
                         } 
