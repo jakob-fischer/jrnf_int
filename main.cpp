@@ -322,7 +322,7 @@ public:
     }
 
 
-    void run(double Tmax=25000, double deltaT=0.1, bool write_rates=false, bool solve_implicit=true) {
+    void run(double Tmax=25000, double deltaT=0.1, bool write_rates=false, bool solve_implicit=true, size_t wint=500) {
                 
         fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
         out.precision(25);
@@ -332,7 +332,12 @@ public:
         // Init solver and start
         vector_type x(initial_con);
          
-        auto write_state = [this, &out, write_rates]( const vector_type &vec , const double t ) {
+        auto write_state = [this, &out, write_rates, wint]( const vector_type &vec , const double t ) {
+            size_t t_int=size_t(t);
+            
+            if(t_int > wint && t_int%wint != 0)
+                return;
+
             out << t << "," << last_msd;
 
             for(size_t l=0; l<vec.size(); ++l)
@@ -432,12 +437,14 @@ int main(int argc, const char *argv []){
         }
 
         double deltaT = cl.have_param("deltaT") ? cl.get_param_d("deltaT") : 10;   
-        double Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;
+        double Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;   
+        double wint = cl.have_param("wint") ? cl.get_param_d("wint") : 500;
         bool write_rates=cl.have_param("write_rates");
         bool solve_implicit=cl.have_param("solve_implicit");            
 
             
-        std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax << std::endl;
+        std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax
+                  << "   wint=" << wint << std::endl;
         if(write_rates) 
             cout << "Output contains reactions' effective rates." << endl;
 
@@ -448,7 +455,7 @@ int main(int argc, const char *argv []){
         reaction_network_system rns = reaction_network_system(fn_network, fn_concentration, write_rates); 
 
         // Simulate ODE (and write results to file)
-        rns.run(Tmax, deltaT, write_rates, solve_implicit);
+        rns.run(Tmax, deltaT, write_rates, solve_implicit, wint);
     }  
     
     
@@ -466,6 +473,7 @@ int main(int argc, const char *argv []){
         cout << "   x'Tmax': Time up to which the system is simulated" << endl;
         cout << "   x'write_rates': 'con' file contains effective reaction rates" << endl;
         cout << "   x'solve_implicit': use stiff solver" << endl;
+        
 	cout << endl;
     } 
 }
