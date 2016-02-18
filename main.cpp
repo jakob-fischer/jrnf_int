@@ -43,6 +43,10 @@ using namespace boost::numeric::odeint;
 const string odeint_rnet_version_string="0x00x04";
 
 
+bool ispowerof2(unsigned int x) {
+   return x && !(x & (x - 1));
+}
+
 
 // 
 typedef boost::numeric::ublas::vector< double > vector_type;
@@ -335,7 +339,7 @@ public:
         auto write_state = [this, &out, write_rates, wint]( const vector_type &vec , const double t ) {
             size_t t_int=size_t(t);
             
-            if(t_int > wint && t_int%wint != 0)
+            if(t_int > wint && !ispowerof2(t_int))
                 return;
 
             out << t << "," << last_msd;
