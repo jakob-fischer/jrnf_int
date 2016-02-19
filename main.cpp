@@ -339,7 +339,7 @@ public:
         auto write_state = [this, &out, write_rates, wint]( const vector_type &vec , const double t ) {
             size_t t_int=size_t(t);
             
-            if(t_int > wint && !ispowerof2(t_int))
+            if(t_int > wint && !ispowerof2(size_t(t/deltaT)))
                 return;
 
             out << t << "," << last_msd;
