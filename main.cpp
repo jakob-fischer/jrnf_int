@@ -336,7 +336,7 @@ public:
         // Init solver and start
         vector_type x(initial_con);
          
-        auto write_state = [this, &out, write_rates, wint]( const vector_type &vec , const double t ) {
+        auto write_state = [this, &out, write_rates, wint, deltaT]( const vector_type &vec , const double t ) {
             size_t t_int=size_t(t);
             
             if(t_int > wint && !ispowerof2(size_t(t/deltaT)))
