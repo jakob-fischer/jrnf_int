@@ -158,7 +158,7 @@ public:
          */
 
         void operator()( const vector_type & x  , matrix_type &J , const double & /* t */ , vector_type &dfdt ) {
-            matrix_type m(x.size(),x.size());
+            //matrix_type m(x.size(),x.size());
            
             for(size_t i=0; i<x.size(); ++i) {
                 for(size_t l=0; l<x.size(); ++l) {
