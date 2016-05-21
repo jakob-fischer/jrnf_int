@@ -6,13 +6,6 @@
  * (<f(x)> ;dx/dt = f(x)). Then follow the concentrations of all species. If the program is called with
  * the option 'write_rates' this is followed by the effective rates of all reactions.
  *
- * 
- * TODO Extend so boundary concentration can be taken from external file (allowing for example periodic 
- *      boundary conditions)
- *
- * TODO Increase precission by only calculating effective flow and not forward- and backward-flow 
- *      independently...  (Not sure if this is possible)
- *
  *      This version of the program calculates forward and backward reaction rates from formation enthalpies
  *      and activation energies given in the network description. (\beta = 1/(k_b T) = 1)
  * TODO Make this optional + Allow choosing \beta at startup
@@ -264,7 +257,7 @@ public:
         }
         
         // Read last line of concentration file and write initial concentration to initial_con
-        // and initial time to initial_t. After done open the same file for appending...
+        // and initial time to initial_t. When done, open the same file for appending...
         initial_con = boost::numeric::ublas::zero_vector<double>(sp.size());
         initial_rate = boost::numeric::ublas::zero_vector<double>(re.size());
 
@@ -326,7 +319,8 @@ public:
     }
 
 
-    void run(double Tmax=25000, double deltaT=0.1, bool write_rates=false, bool solve_implicit=true, size_t wint=500) {
+    void run(double Tmax=25000, double deltaT=0.1, bool write_rates=false, 
+             bool solve_implicit=true, size_t wint=500, bool write_log=false) {
                 
         fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
         out.precision(25);
@@ -339,9 +333,6 @@ public:
         auto write_state = [this, &out, write_rates, wint, deltaT, Tmax]( const vector_type &vec , const double t ) {
             size_t t_int=size_t(t);
             
-            if(t_int > wint && !ispowerof2(size_t(t/deltaT)) && t != Tmax)
-                return;
-
             out << t << "," << last_msd;
 
             for(size_t l=0; l<vec.size(); ++l)
@@ -360,23 +351,20 @@ public:
         };
 
 
-        size_t step_no = 0;
+        size_t step_no = 0;  // Number of steps done by integrator (for diagnostics)
 
-        if(solve_implicit) {
-            step_no = integrate_const( make_dense_output< rosenbrock4< double > >( 1.0e-6 , 1.0e-6 ) ,
+        std::vector<double> times( wint );
+        for( size_t i=0 ; i<wint ; ++i )
+            times[i] = write_log ? initial_t + (exp(double(i))-1)/(exp(double(wint-1))-1)*(Tmax-initial_t) :
+                                   initial_t + double(i)/(wint-1)*(Tmax-initial_t);
+
+        step_no = solve_implicit ?
+                      integrate_times( make_controlled< rosenbrock4< double > >( 1.0e-6 , 1.0e-6 ) ,
                                        make_pair( stiff_system(*this) , stiff_system_jacobi(*this) ) ,
-                                       x , initial_t , Tmax , deltaT ,
-                                       write_state);
-        } else {
-            step_no = integrate_const( make_dense_output< runge_kutta_dopri5< vector_type > >( 1.0e-6 , 1.0e-6 ) ,
-                                       stiff_system(*this) , x , initial_t , Tmax , deltaT ,
-                                       write_state);
-        }
+                                       x , times, deltaT, write_state) :
+                      integrate_times( make_controlled< runge_kutta_dopri5< vector_type > >( 1.0e-6 , 1.0e-6 ) ,
+                                       stiff_system(*this) , x, times, deltaT, write_state);
 
-
- 
-        // 
-        write_state(x, Tmax);
 
         size_t t1 = time(NULL);
         std::cout << "Run took " << t1-t0 << " seconds and " << step_no << " steps!" << std::endl;
@@ -445,12 +433,16 @@ int main(int argc, const char *argv []){
         double wint = cl.have_param("wint") ? cl.get_param_d("wint") : 500;
         bool write_rates=cl.have_param("write_rates");
         bool solve_implicit=cl.have_param("solve_implicit");            
+        bool write_log=cl.have_param("write_log");
 
             
         std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax
                   << "   wint=" << wint << std::endl;
         if(write_rates) 
             cout << "Output contains reactions' effective rates." << endl;
+
+        if(write_log) 
+            cout << "Period of output will be equidistant on logscale." << endl;
 
         if(solve_implicit)
             cout << "Stiff solver is used!" << endl;
@@ -459,7 +451,7 @@ int main(int argc, const char *argv []){
         reaction_network_system rns = reaction_network_system(fn_network, fn_concentration, write_rates); 
 
         // Simulate ODE (and write results to file)
-        rns.run(Tmax, deltaT, write_rates, solve_implicit, wint);
+        rns.run(Tmax, deltaT, write_rates, solve_implicit, wint, write_log);
     }  
     
     
@@ -473,9 +465,11 @@ int main(int argc, const char *argv []){
         cout << "prints  right hand side of ode for diagnostic purposes." << endl;
 	cout << endl;
         cout << "-'simulate': load reaction network 'net' and simulate file 'con'!. Parameters are:" << endl;
-        cout << "   x'deltaT': Interval in which concentrations are saved to file 'con'" << endl;
+        cout << "   x'deltaT': Integration interval (relevant for integrator, not for output!)" << endl;
         cout << "   x'Tmax': Time up to which the system is simulated" << endl;
         cout << "   x'write_rates': 'con' file contains effective reaction rates" << endl;
+        cout << "   x'wint': number of output times between Tstart and Tmax" << endl;
+        cout << "   x'write_log': write output logarithmically spaced (else linearly)" << endl;
         cout << "   x'solve_implicit': use stiff solver" << endl;
         
 	cout << endl;
