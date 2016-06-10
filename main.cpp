@@ -428,7 +428,7 @@ int main(int argc, const char *argv []){
             return 1;
         }
 
-        double deltaT = cl.have_param("deltaT") ? cl.get_param_d("deltaT") : 10;   
+        double deltaT = cl.have_param("deltaT") ? cl.get_param_d("deltaT") : 0.1;   
         double Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;   
         double wint = cl.have_param("wint") ? cl.get_param_d("wint") : 500;
         bool write_rates=cl.have_param("write_rates");
