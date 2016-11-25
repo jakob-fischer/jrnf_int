@@ -33,15 +33,10 @@ using namespace boost::numeric::odeint;
 #define GIT_VERSION "no version"
 #endif
 
+// version string increment if mayor changes happen
 const string odeint_rnet_version_string="0x00x04";
 
-
-bool ispowerof2(unsigned int x) {
-   return x && !(x & (x - 1));
-}
-
-
-// 
+// various ublas types needed for implicit solver
 typedef boost::numeric::ublas::vector< double > vector_type;
 typedef boost::numeric::ublas::matrix< double > matrix_type;
 typedef boost::numeric::ublas::matrix< int > matrix_type_int;
@@ -96,11 +91,7 @@ public:
 
         /*
          * Prototype for the rhs of ODE
-         * TODO: test + speed up
-         *   Especially this part can be made faster (by keeping a list instead of iterating
-         *   all species:
-         *                   for(size_t k=0; k<x.size(); ++k) {             
-         *                       if(rns.N_in(k,j) != 0) 
+         * 
          */
 
         void operator()( const vector_type &x , vector_type &dxdt , double /* t */ ) {
@@ -454,7 +445,7 @@ int main(int argc, const char *argv []){
         rns.run(Tmax, deltaT, write_rates, solve_implicit, wint, write_log);
     }  
     
-    
+    // User interface / help dialogue
     if(cl.have_param("help") || cl.have_param("info")) {
         cout << "          odeint_rnet" << endl;  
         cout << "          ===========" << endl;
