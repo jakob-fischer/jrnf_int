@@ -184,7 +184,9 @@ public:
 
 
 
-
+    /*
+     *
+     */
 
     reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_, bool write_rate_=false) 
         : fn_concentration(fn_concentration_), beta(1), last_msd(0), write_rate(write_rate_)  {
@@ -296,6 +298,8 @@ public:
     }
 
 
+    //
+
     void print_rhs(size_t t=0) {
         vector_type x(initial_con);
         vector_type dxdt=boost::numeric::ublas::zero_vector<double>(sp.size());
@@ -309,6 +313,11 @@ public:
         cout << endl;
     }
 
+
+    /*
+     *
+     *
+     */
 
     void run(double Tmax=25000, double deltaT=0.1, bool write_rates=false, 
              bool solve_implicit=true, size_t wint=500, bool write_log=false) {
@@ -365,6 +374,11 @@ public:
 };
 
 
+/*
+ * Main-Function. Manages commandline parameter and prints help screen.
+ * All the real work is done through using the reaction_network_system 
+ * class (above).
+ */
 
 int main(int argc, const char *argv []){
     srand(time(0));
@@ -419,11 +433,17 @@ int main(int argc, const char *argv []){
             return 1;
         }
 
+        // Initial time-step for integrator
         double deltaT = cl.have_param("deltaT") ? cl.get_param_d("deltaT") : 0.1;   
-        double Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;   
+        // ODE is integrated up to <Tmax>
+        double Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;  
+        // Number of times the output is written between initial time and <Tmax> 
         double wint = cl.have_param("wint") ? cl.get_param_d("wint") : 500;
+        // Also rates are given as output (to the file fn_concentration)
         bool write_rates=cl.have_param("write_rates");
-        bool solve_implicit=cl.have_param("solve_implicit");            
+        // Use implicit solver?
+        bool solve_implicit=cl.have_param("solve_implicit");    
+        // Is output given logarithmically spaced? (Or linearly?)        
         bool write_log=cl.have_param("write_log");
 
             
@@ -442,6 +462,7 @@ int main(int argc, const char *argv []){
         reaction_network_system rns = reaction_network_system(fn_network, fn_concentration, write_rates); 
 
         // Simulate ODE (and write results to file)
+        // The method gives diagnostic feedback to the user through console output
         rns.run(Tmax, deltaT, write_rates, solve_implicit, wint, write_log);
     }  
     
