@@ -1,4 +1,4 @@
 author: jakob fischer (jakob@automorph.info)               date: 25th November 2016
 
 
-
+The stiff solver might not be appropriate for bigger networks (more than ~50 species) as the calculation of the jacobi matrix in the current form gets to slow then.
