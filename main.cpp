@@ -46,7 +46,7 @@ typedef boost::numeric::ublas::matrix< int > matrix_type_int;
 
 class reaction_network_system {
     double beta;
-    double initial_t, last_write, last_msd;
+    double initial_t, last_msd;
     std::vector<species> sp;
     std::vector<reaction> re;
     vector_type initial_con, initial_rate;
@@ -58,6 +58,44 @@ class reaction_network_system {
     vector_type Ea, mu0, e_bs_in, e_bs_out, e_m_bEa;
 
 public:
+    struct fast_system {
+        reaction_network_system& rns;
+
+        fast_system(reaction_network_system& rns_) : rns(rns_)  {}
+
+        /*
+         * Prototype for the rhs of ODE
+         * 
+         */
+
+        void operator()( const vector_type &x , vector_type &dxdt , double /* t */ ) {
+
+            for(size_t i=0; i<rns.sp.size(); ++i) 
+                dxdt[i]=0;
+    
+            for(size_t i=0; i<rns.re.size(); ++i) {
+                double rate_f=rns.re[i].get_k();
+	        double rate_b=rns.re[i].get_k_b();
+	 
+                for(size_t j=0; j<rns.re[i].get_no_educt_s(); ++j)
+                    rate_f *= x[rns.re[i].get_educt_id(j)];
+
+                for(size_t j=0; j<rns.re[i].get_no_product_s(); ++j)
+                    rate_b *= x[rns.re[i].get_product_id(j)];
+	   
+                for(size_t j=0; j<rns.re[i].get_no_educt_s(); ++j)
+                    dxdt[rns.re[i].get_educt_id(j)] -= (rate_f - rate_b);
+
+                for(size_t j=0; j<rns.re[i].get_no_product_s(); ++j)
+                    dxdt[rns.re[i].get_product_id(j)] += (rate_f - rate_b);
+             }
+
+            for(size_t i=0; i<rns.sp.size(); ++i)
+                if(rns.sp[i].is_constant())
+	            dxdt[i]=0;
+         }
+    };
+
     struct stiff_system {
         reaction_network_system& rns;
 
@@ -83,9 +121,6 @@ public:
                 }
             }         
 
-            vector_type k_f=element_prod(rns.e_m_bEa, rns.e_bs_in);
-            vector_type k_b=element_prod(rns.e_m_bEa, rns.e_bs_out);
-
             rates = element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out));
         }
 
@@ -107,11 +142,6 @@ public:
                         a3(j) *= pow(x(rns.N_out_list[j][l]), rns.N_out(rns.N_out_list[j][l],j));
 
             }         
-
-
-
-            vector_type k_f=element_prod(rns.e_m_bEa, rns.e_bs_in);
-            vector_type k_b=element_prod(rns.e_m_bEa, rns.e_bs_out);
 
             dxdt = prod(rns.N, element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out)));
 
@@ -371,6 +401,82 @@ public:
 
         out.close();
    }
+
+
+    bool initialize_legacy() {
+        for(size_t i=0; i<re.size(); ++i) {
+            if(re[i].get_no_educt() == 2 && re[i].get_no_product() == 2) {
+	        
+		if(re[i].get_no_educt_s() == 1) {
+	            re[i].add_educt_s(re[i].get_educt_id(0));
+		    re[i].set_educt_mul(0,1.0);
+		}
+	    
+	        if(re[i].get_no_product_s() == 1) {
+	            re[i].add_product_s(re[i].get_product_id(0));	   
+		    re[i].set_product_mul(0,1.0);
+	        }
+	    } else if(re[i].get_no_educt() == 1 && re[i].get_no_product() == 1) {
+	    } else {
+	        cout << "Reaction " << i << " : invalid reaction. Only 1-1 and 2-2 r. allowed!" << endl;
+		cout << re[i].get_string() << endl;
+	        return true;
+	    }
+        }
+
+        return false;
+    }
+
+    void run_legacy(double Tmax=25000, double deltaT=0.1, size_t wint=500) {
+                
+        fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
+        out.precision(25);
+
+        size_t t0 = time(NULL);
+
+        vector_type x(initial_con), last_con(initial_con);
+        double last_write(initial_t);
+         
+        auto write_state = [this, &out, t0, wint, deltaT, Tmax, &last_con, &last_write]( const vector_type &vec , const double t ) {
+            double last_msd=0;
+            for(size_t i=0; i<vec.size(); ++i)
+                 last_msd += (vec[i]-last_con[i])*(vec[i]-last_con[i]);
+
+            if(t != last_write)
+                last_msd /= (vec.size()*(t-last_write));
+            last_write=t;
+            last_con=vec;
+
+            out << t << "," << last_msd;
+
+            for(size_t l=0; l<vec.size(); ++l)
+                out << "," << vec(l);
+
+
+            if(last_msd > 1e-44 && last_msd < 1e-20) {
+                std::cout << "Reached msd < 1e-20 condition - exiting early!" << std::endl;
+                size_t t1 = time(NULL);
+                std::cout << "Run took " << t1-t0 << " seconds!" << std::endl;
+                exit(0);
+            }
+
+            out << std::endl;
+        };
+
+
+        std::vector<double> times( wint );
+        for( size_t i=0 ; i<wint ; ++i )
+            times[i] = initial_t + double(i)/(wint-1)*(Tmax-initial_t);
+
+        // Number of steps done by integrator (for diagnostics)
+        size_t step_no = integrate_times( make_dense_output< runge_kutta_dopri5< vector_type > >( 1.0e-6 , 1.0e-6 ) ,
+                         fast_system(*this) , x, times, deltaT, write_state);
+
+        size_t t1 = time(NULL);
+        std::cout << "Run took " << t1-t0 << " seconds and " << step_no << " steps!" << std::endl;
+
+        out.close();
+   }
 };
 
 
@@ -465,6 +571,47 @@ int main(int argc, const char *argv []){
         // The method gives diagnostic feedback to the user through console output
         rns.run(Tmax, deltaT, write_rates, solve_implicit, wint, write_log);
     }  
+
+
+    if(cl.have_param("simsim")) {
+        std::string fn_network, fn_concentration;      
+
+        if(cl.have_param("net")) 
+            fn_network=cl.get_param("net");
+        else {
+            cout << "You have to give the name of reaction network by 'net'!" << endl;  
+            return 1;
+        }
+    
+        if(cl.have_param("con")) 
+            fn_concentration=cl.get_param("con");
+        else {
+            cout << "You have to give the name of the concentration file by 'con'!" << endl;   
+            return 1;
+        }
+
+        // Initial time-step for integrator
+        double deltaT = cl.have_param("deltaT") ? cl.get_param_d("deltaT") : 0.1;   
+        // ODE is integrated up to <Tmax>
+        double Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;  
+        // Number of times the output is written between initial time and <Tmax> 
+        double wint = cl.have_param("wint") ? cl.get_param_d("wint") : 500;
+        // Also rates are given as output (to the file fn_concentration)
+            
+        std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax
+                  << "   wint=" << wint << std::endl;
+
+
+        // Load reaction network and concentration file
+        reaction_network_system rns = reaction_network_system(fn_network, fn_concentration, false); 
+
+        // Simulate ODE (and write results to file)
+        // The method gives diagnostic feedback to the user through console output
+        rns.initialize_legacy();
+        rns.run_legacy(Tmax, deltaT, wint);
+    }  
+
+
     
     // User interface / help dialogue
     if(cl.have_param("help") || cl.have_param("info")) {
@@ -482,7 +629,7 @@ int main(int argc, const char *argv []){
         cout << "   x'write_rates': 'con' file contains effective reaction rates" << endl;
         cout << "   x'wint': number of output times between Tstart and Tmax" << endl;
         cout << "   x'write_log': write output logarithmically spaced (else linearly)" << endl;
-        cout << "   x'solve_implicit': use stiff solver" << endl;
+        cout << "   x'solve_implicit': use stiff solver (might be slower for big nets!)" << endl;
         
 	cout << endl;
     } 
