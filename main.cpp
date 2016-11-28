@@ -3,8 +3,7 @@
  * Tool for solving a ODE for a reaction system given as an jrnf-file. The concentration and time
  * are read and written from / to a comma seperated file. Every row / line represents one time step.
  * the first column contains the time of this step, the second the mean of the quadratic change 
- * (<f(x)> ;dx/dt = f(x)). Then follow the concentrations of all species. If the program is called with
- * the option 'write_rates' this is followed by the effective rates of all reactions.
+ * (<f(x)> ;dx/dt = f(x)). Then follow the concentrations of all species. 
  *
  * One version of the program (option "simulate" calculates effective reaction rates directly
  * from formation enthalpies and activation energies given in the network description. 
@@ -64,8 +63,7 @@ class reaction_network_system {
     double initial_t;    
     vector_type initial_con, initial_rate;
     std::string fn_concentration;      // filename
-    
-    bool write_rate;                   // do write rate?
+
     matrix_type_int N, N_in, N_out;    // stoichiometric matrices
     // List that contains for each column in N_in / N_out (= for each reaction)
     // a vector of those rows (species) that are nonzero.
@@ -228,8 +226,8 @@ public:
      *
      */
 
-    reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_, bool write_rate_=false) 
-        : fn_concentration(fn_concentration_), beta(1), write_rate(write_rate_)  {
+    reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_) 
+        : fn_concentration(fn_concentration_), beta(1) {
         
         read_jrnf_reaction_n(fn_network, sp, re);
     
@@ -321,8 +319,6 @@ public:
                     in >> last_msd;                
                 else if(cnt <= sp.size()+1)
                     in >> initial_con(cnt-2);
-                else if(cnt <= sp.size()+re.size()+1  && write_rate)
-                    in >> initial_rate(cnt-sp.size()-2);
                 else
                     std::cout << "Error at reading csv / concentration file!" << std::endl;
 
@@ -362,8 +358,8 @@ public:
      *
      */
 
-    void run(double Tmax=25000, double deltaT=0.1, bool write_rates=false, 
-             bool solve_implicit=true, size_t wint=500, size_t write_log=0) {
+    void run(double Tmax=25000, double deltaT=0.1, bool solve_implicit=true, 
+             size_t wint=500, size_t write_log=0) {
                 
         fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
         out.precision(25);
@@ -403,6 +399,7 @@ public:
             else 
                 times[i] = initial_t*pow(exp(1/double(wint)*log(Tmax/initial_t)),double(i+1));
 
+        // Call integrator - returns number of steps. Either implicit or explicit stepper is used.
         step_no = solve_implicit ?
                       integrate_times( make_controlled< rosenbrock4< double > >( 1.0e-6 , 1.0e-6 ) ,
                                        make_pair( stiff_system(*this) , stiff_system_jacobi(*this) ) ,
@@ -410,10 +407,9 @@ public:
                       integrate_times( make_controlled< runge_kutta_dopri5< vector_type > >( 1.0e-6 , 1.0e-6 ) ,
                                        stiff_system(*this) , x, times, deltaT, write_state);
 
-
+        // print time + steps needed and close file
         size_t t1 = time(NULL);
         std::cout << "Run took " << t1-t0 << " seconds and " << step_no << " steps!" << std::endl;
-
         out.close();
    }
 
@@ -443,8 +439,14 @@ public:
         }
     }
 
+    /*
+     * Method for calling the simple / fast integrator that uses explicit stepping and 
+     * the reaction constants defined in the network object. System (f(x)) is defined 
+     * in "fast_system".
+     * For description of method's parameters see method "run" above.
+     */
+
     void run_fastint(double Tmax=25000, double deltaT=0.1, size_t wint=500, size_t write_log=0) {
-                
         fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
         out.precision(25);
 
@@ -453,6 +455,7 @@ public:
         vector_type x(initial_con), last_con(initial_con);
         double last_write(initial_t);
          
+        // Function that is called by stepper and writes concentration (<vec>) to file.
         auto write_state = [this, &out, t0, wint, deltaT, Tmax, &last_con, &last_write]( const vector_type &vec , const double t ) {
             // calculate meas square distance from last write
             double last_msd=0;
@@ -469,7 +472,10 @@ public:
             for(size_t l=0; l<vec.size(); ++l)
                 out << "," << vec(l);
 
-            // If 
+            // If msd (change of concentration) per time and per species is less 
+            // than 1e-20 but not zero this integrator stops early because the
+            // assumption is that the network is converged. (Might not be true in
+            // the strict sense for all imaginable networks that can be simulated!)
             if(last_msd > 1e-44 && last_msd < 1e-20) {
                 std::cout << "Reached msd < 1e-20 condition - exiting early!" << std::endl;
                 size_t t1 = time(NULL);
@@ -480,7 +486,8 @@ public:
             out << std::endl;
         };
 
-        // calculate vector of time points at which "write_state" will be called
+        // Calculate vector of time points at which "write_state" will be called.
+        // For details see same code in method "run" above.
         std::vector<double> times( wint );
         for( size_t i=0 ; i<wint ; ++i ) 
             if(write_log == 0) 
@@ -569,8 +576,6 @@ int main(int argc, const char *argv []){
         double Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;  
         // Number of times the output is written between initial time and <Tmax> 
         double wint = cl.have_param("wint") ? cl.get_param_d("wint") : 500;
-        // Also rates are given as output (to the file fn_concentration)
-        bool write_rates=cl.have_param("write_rates");
         // Use implicit solver?
         bool solve_implicit=cl.have_param("solve_implicit");    
         // Is output given logarithmically spaced? (Or linearly?)        
@@ -582,8 +587,6 @@ int main(int argc, const char *argv []){
             
         std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax
                   << "   wint=" << wint << std::endl;
-        if(write_rates) 
-            cout << "Output contains reactions' effective rates." << endl;
 
         if(write_log == 1) 
             cout << "Period of output will be equidistant on logscale (from t=t_0)." << endl;
@@ -595,11 +598,11 @@ int main(int argc, const char *argv []){
             cout << "Stiff solver is used!" << endl;
 
         // Load reaction network and concentration file
-        reaction_network_system rns = reaction_network_system(fn_network, fn_concentration, write_rates); 
+        reaction_network_system rns = reaction_network_system(fn_network, fn_concentration); 
 
         // Simulate ODE (and write results to file)
         // The method gives diagnostic feedback to the user through console output
-        rns.run(Tmax, deltaT, write_rates, solve_implicit, wint, write_log);
+        rns.run(Tmax, deltaT, solve_implicit, wint, write_log);
     }  
 
 
@@ -651,7 +654,7 @@ int main(int argc, const char *argv []){
 
 
         // Load reaction network and concentration file
-        reaction_network_system rns = reaction_network_system(fn_network, fn_concentration, false); 
+        reaction_network_system rns = reaction_network_system(fn_network, fn_concentration); 
 
         // Simulate ODE (and write results to file)
         // The method gives diagnostic feedback to the user through console output
@@ -673,7 +676,6 @@ int main(int argc, const char *argv []){
         cout << "-'simulate': load reaction network 'net' and simulate file 'con'!. Parameters are:" << endl;
         cout << "   x'deltaT': Integration interval (relevant for integrator, not for output!)" << endl;
         cout << "   x'Tmax': Time up to which the system is simulated" << endl;
-        cout << "   x'write_rates': 'con' file contains effective reaction rates" << endl;
         cout << "   x'wint': number of output times between Tstart and Tmax" << endl;
         cout << "   x'write_log': write output logarithmically spaced (from t=t_0)" << endl;
         cout << "   x'write_log_abs': write output logarithmically spaced from (t=0)" << endl;
