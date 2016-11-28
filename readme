@@ -1,4 +1,15 @@
 author: jakob fischer (jakob@automorph.info)               date: 25th November 2016
+homepage: https://github.com/jakob-fischer/jrnf_int
+-----------------------------------------------------------------------------------
 
+Program for solving odes using the odeint boost library. The program allows to
+use different methods. For details look into "main.cpp". (The stiff solver might 
+not be appropriate for bigger networks (more than ~50 species) as the calculation 
+of the jacobi matrix in the current form gets to slow then!)
 
-The stiff solver might not be appropriate for bigger networks (more than ~50 species) as the calculation of the jacobi matrix in the current form gets to slow then.
+The program can be built using the accompanying makefile ("Makefile"). At the 
+console (Linux / Unix) just type "make". If successfully compiled program can
+be used by typing "./jrnf_int help" in the same directory. 
+
+CAUTION: The code is affected from this bug in odeint (boost): https://github.com/headmyshoulder/odeint-v2/commit/31c29dd9486c78d1ec4c0eac7b95e7d34a21362e
+If the stiff solver runs really slow this might be the fault. At the moment (Nov 2016) the fix is not in a boost release yet. So if a distribution did not patch it one has do do it themself. 

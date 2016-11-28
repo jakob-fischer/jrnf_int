@@ -6,9 +6,18 @@
  * (<f(x)> ;dx/dt = f(x)). Then follow the concentrations of all species. If the program is called with
  * the option 'write_rates' this is followed by the effective rates of all reactions.
  *
- *      This version of the program calculates forward and backward reaction rates from formation enthalpies
- *      and activation energies given in the network description. (\beta = 1/(k_b T) = 1)
- * TODO Make this optional + Allow choosing \beta at startup
+ * One version of the program (option "simulate" calculates effective reaction rates directly
+ * from formation enthalpies and activation energies given in the network description. 
+ * (\beta = 1/(k_b T) = 1). This allows higher precision and usage of an explicit solver which
+ * is over all faster for small networks (< 50 species). 
+ *
+ * TODO There seems to be a problem with exceptionally short steps (distances in the
+ *      <times> vector given to integrate_times) as well as with very wide steps. This
+ *      occurs when the "write_log" option lead to output step sizes below 1e-7 or 
+ *      above 1e7. The solution for now is to first use linear stepping, then 
+ *      "write_log_abs" and at larger timescale linear stepping again. 
+ *      Giving a minimal and maximal step size as parameter might be a good 
+ *      improvement for future versions! 
  */
 
 #include <iostream>
@@ -42,19 +51,26 @@ typedef boost::numeric::ublas::matrix< double > matrix_type;
 typedef boost::numeric::ublas::matrix< int > matrix_type_int;
 
 
-
+/*
+ *
+ *
+ */
 
 class reaction_network_system {
-    double beta;
-    double initial_t, last_msd;
-    std::vector<species> sp;
-    std::vector<reaction> re;
+    double beta;                // beta = 1/(k_b T)
+    std::vector<species> sp;    // The reaction
+    std::vector<reaction> re;   // network
+    // initial time, concentration and rates loaded with concentration file
+    double initial_t;    
     vector_type initial_con, initial_rate;
-    std::string fn_concentration;
+    std::string fn_concentration;      // filename
     
-    bool write_rate;
-    matrix_type_int N, N_in, N_out;
+    bool write_rate;                   // do write rate?
+    matrix_type_int N, N_in, N_out;    // stoichiometric matrices
+    // List that contains for each column in N_in / N_out (= for each reaction)
+    // a vector of those rows (species) that are nonzero.
     std::vector< std::vector<size_t> > N_in_list, N_out_list;
+    // 
     vector_type Ea, mu0, e_bs_in, e_bs_out, e_m_bEa;
 
 public:
@@ -148,12 +164,6 @@ public:
             for(size_t k=0; k<x.size(); ++k)
                 if(rns.sp[k].is_constant())
                     dxdt(k) = 0;
-
-            // square all elements of dxdt and calculate the mean  (to analyze convergence later)
-            rns.last_msd = 0;
-            for(size_t i=0; i<dxdt.size(); ++i)
-                rns.last_msd += dxdt(i)*dxdt(i);
-            rns.last_msd /= dxdt.size();
         }
     };
 
@@ -219,7 +229,7 @@ public:
      */
 
     reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_, bool write_rate_=false) 
-        : fn_concentration(fn_concentration_), beta(1), last_msd(0), write_rate(write_rate_)  {
+        : fn_concentration(fn_concentration_), beta(1), write_rate(write_rate_)  {
         
         read_jrnf_reaction_n(fn_network, sp, re);
     
@@ -324,18 +334,21 @@ public:
         std::cout << "Loaded concentration file with starting time " << initial_t << std::endl;
                   
         data.close();        
-         
     }
 
 
-    //
+    /*
+     * To check some differential equations or the algorithm it might be usefull
+     * to calculate the right hand side of the differential equation for a given
+     * concentration vector.
+     */
 
-    void print_rhs(size_t t=0) {
+    void print_rhs() {
         vector_type x(initial_con);
         vector_type dxdt=boost::numeric::ublas::zero_vector<double>(sp.size());
  
-        // calculate rhs
-        stiff_system(*this)(x, dxdt, t);
+        // calculate rhs - operator saves it do dxdt
+        stiff_system(*this)(x, dxdt, 0);
 
         cout << "righthandside:" << endl;
         for(size_t i=0; i<dxdt.size(); ++i)
@@ -350,7 +363,7 @@ public:
      */
 
     void run(double Tmax=25000, double deltaT=0.1, bool write_rates=false, 
-             bool solve_implicit=true, size_t wint=500, bool write_log=false) {
+             bool solve_implicit=true, size_t wint=500, size_t write_log=0) {
                 
         fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
         out.precision(25);
@@ -358,82 +371,6 @@ public:
         size_t t0 = time(NULL);
 
         // Init solver and start
-        vector_type x(initial_con);
-         
-        auto write_state = [this, &out, write_rates, wint, deltaT, Tmax]( const vector_type &vec , const double t ) {
-            size_t t_int=size_t(t);
-            
-            out << t << "," << last_msd;
-
-            for(size_t l=0; l<vec.size(); ++l)
-                out << "," << vec(l);
-
-            if(write_rates) {
-                // have to calculate rates for actual x first (x may be interpolated)!
-                vector_type rates=boost::numeric::ublas::zero_vector<double>(re.size());
-                stiff_system(*this).calculate_rates(vec, rates);
-
-                for(size_t l=0; l<rates.size(); ++l)
-                    out << "," << rates(l);
-            }
-
-            out << std::endl;
-        };
-
-
-        size_t step_no = 0;  // Number of steps done by integrator (for diagnostics)
-
-        std::vector<double> times( wint );
-        for( size_t i=0 ; i<wint ; ++i )
-            times[i] = write_log ? initial_t + (exp(double(i))-1)/(exp(double(wint-1))-1)*(Tmax-initial_t) :
-                                   initial_t + double(i)/(wint-1)*(Tmax-initial_t);
-
-        step_no = solve_implicit ?
-                      integrate_times( make_controlled< rosenbrock4< double > >( 1.0e-6 , 1.0e-6 ) ,
-                                       make_pair( stiff_system(*this) , stiff_system_jacobi(*this) ) ,
-                                       x , times, deltaT, write_state) :
-                      integrate_times( make_controlled< runge_kutta_dopri5< vector_type > >( 1.0e-6 , 1.0e-6 ) ,
-                                       stiff_system(*this) , x, times, deltaT, write_state);
-
-
-        size_t t1 = time(NULL);
-        std::cout << "Run took " << t1-t0 << " seconds and " << step_no << " steps!" << std::endl;
-
-        out.close();
-   }
-
-
-    bool initialize_legacy() {
-        for(size_t i=0; i<re.size(); ++i) {
-            if(re[i].get_no_educt() == 2 && re[i].get_no_product() == 2) {
-	        
-		if(re[i].get_no_educt_s() == 1) {
-	            re[i].add_educt_s(re[i].get_educt_id(0));
-		    re[i].set_educt_mul(0,1.0);
-		}
-	    
-	        if(re[i].get_no_product_s() == 1) {
-	            re[i].add_product_s(re[i].get_product_id(0));	   
-		    re[i].set_product_mul(0,1.0);
-	        }
-	    } else if(re[i].get_no_educt() == 1 && re[i].get_no_product() == 1) {
-	    } else {
-	        cout << "Reaction " << i << " : invalid reaction. Only 1-1 and 2-2 r. allowed!" << endl;
-		cout << re[i].get_string() << endl;
-	        return true;
-	    }
-        }
-
-        return false;
-    }
-
-    void run_legacy(double Tmax=25000, double deltaT=0.1, size_t wint=500) {
-                
-        fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
-        out.precision(25);
-
-        size_t t0 = time(NULL);
-
         vector_type x(initial_con), last_con(initial_con);
         double last_write(initial_t);
          
@@ -452,7 +389,87 @@ public:
             for(size_t l=0; l<vec.size(); ++l)
                 out << "," << vec(l);
 
+            out << std::endl;
+        };
 
+
+        size_t step_no = 0;  // Number of steps done by integrator (for diagnostics)
+        std::vector<double> times( wint );
+        for( size_t i=0 ; i<wint ; ++i ) 
+            if(write_log == 0) 
+                times[i] = initial_t + double(i+1)/(wint)*(Tmax-initial_t);
+            else if(write_log == 1 || initial_t == 0) 
+                times[i] = initial_t + (exp(double(i+1))-1)/(exp(double(wint))-1)*(Tmax-initial_t);
+            else 
+                times[i] = initial_t*pow(exp(1/double(wint)*log(Tmax/initial_t)),double(i+1));
+
+        step_no = solve_implicit ?
+                      integrate_times( make_controlled< rosenbrock4< double > >( 1.0e-6 , 1.0e-6 ) ,
+                                       make_pair( stiff_system(*this) , stiff_system_jacobi(*this) ) ,
+                                       x , times, deltaT, write_state) :
+                      integrate_times( make_controlled< runge_kutta_dopri5< vector_type > >( 1.0e-6 , 1.0e-6 ) ,
+                                       stiff_system(*this) , x, times, deltaT, write_state);
+
+
+        size_t t1 = time(NULL);
+        std::cout << "Run took " << t1-t0 << " seconds and " << step_no << " steps!" << std::endl;
+
+        out.close();
+   }
+
+
+   /* 
+    * The fastint integration (calculating forward and backward rates directly 
+    * through reaction constants) needs the networks to be exanded what this 
+    * method ensures (multiple occurance of same educt product in same reaction
+    * has to be explicit - "A + A" instead of "2 A").
+    */
+
+    void initialize_fastint() {
+        for(size_t i=0; i<re.size(); ++i) {
+            for(size_t j=0; j<re[i].get_no_educt_s(); ++j) { 
+                if(re[i].get_educt_mul(j) > 1.1) {
+                    re[i].add_educt_s(re[i].get_educt_id(j), re[i].get_educt_mul(j)-1);
+                    re[i].set_educt_mul(j,1.0);
+                }
+            }
+
+            for(size_t j=0; j<re[i].get_no_product_s(); ++j) { 
+                if(re[i].get_product_mul(j) > 1.1) {
+                    re[i].add_product_s(re[i].get_product_id(j), re[i].get_product_mul(j)-1);
+                    re[i].set_product_mul(j,1.0);
+                }
+            }
+        }
+    }
+
+    void run_fastint(double Tmax=25000, double deltaT=0.1, size_t wint=500, size_t write_log=0) {
+                
+        fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
+        out.precision(25);
+
+        size_t t0 = time(NULL);
+
+        vector_type x(initial_con), last_con(initial_con);
+        double last_write(initial_t);
+         
+        auto write_state = [this, &out, t0, wint, deltaT, Tmax, &last_con, &last_write]( const vector_type &vec , const double t ) {
+            // calculate meas square distance from last write
+            double last_msd=0;
+            for(size_t i=0; i<vec.size(); ++i)
+                 last_msd += (vec[i]-last_con[i])*(vec[i]-last_con[i]);
+            if(t != last_write)
+                last_msd /= (vec.size()*(t-last_write));
+            last_write=t;
+            last_con=vec;
+
+            // write time + msd...
+            out << t << "," << last_msd;
+            // ...and all concentrations
+            for(size_t l=0; l<vec.size(); ++l)
+                out << "," << vec(l);
+
+            // If 
             if(last_msd > 1e-44 && last_msd < 1e-20) {
                 std::cout << "Reached msd < 1e-20 condition - exiting early!" << std::endl;
                 size_t t1 = time(NULL);
@@ -463,18 +480,23 @@ public:
             out << std::endl;
         };
 
-
+        // calculate vector of time points at which "write_state" will be called
         std::vector<double> times( wint );
-        for( size_t i=0 ; i<wint ; ++i )
-            times[i] = initial_t + double(i)/(wint-1)*(Tmax-initial_t);
+        for( size_t i=0 ; i<wint ; ++i ) 
+            if(write_log == 0) 
+                times[i] = initial_t + double(i+1)/(wint)*(Tmax-initial_t);
+            else if(write_log == 1 || initial_t == 0) 
+                times[i] = initial_t + (exp(double(i+1))-1)/(exp(double(wint))-1)*(Tmax-initial_t);
+            else 
+                times[i] = initial_t*pow(exp(1/double(wint)*log(Tmax/initial_t)),double(i+1));
 
-        // Number of steps done by integrator (for diagnostics)
+        // Call integrator - returns number of steps
         size_t step_no = integrate_times( make_dense_output< runge_kutta_dopri5< vector_type > >( 1.0e-6 , 1.0e-6 ) ,
                          fast_system(*this) , x, times, deltaT, write_state);
 
+        // print time + steps needed and close file
         size_t t1 = time(NULL);
         std::cout << "Run took " << t1-t0 << " seconds and " << step_no << " steps!" << std::endl;
-
         out.close();
    }
 };
@@ -491,7 +513,7 @@ int main(int argc, const char *argv []){
     std::cout << "odeint_rnet version " << odeint_rnet_version_string << " (commit:" 
               << GIT_VERSION << ")" << std::endl;
     
-    cl_para cl(argc, argv);
+    cl_para cl(argc, argv);  // create class to query command line parameters
     
 
     // Prints the right hand side of the ODE (f(x)) for diagnostic purposes.
@@ -513,14 +535,16 @@ int main(int argc, const char *argv []){
             return 1;
         }
 
-        // load network and concentration file
+        // load network and concentration file and call function to print right hand side
         reaction_network_system rns = reaction_network_system(fn_network, fn_concentration); 
-        rns.print_rhs(0);  // time is 0 (doesn't matter)
+        rns.print_rhs();  
     }  
 
 
     // Simulates / integrates a reaction network while holding the boundary point 
-    // species (constant=true) constant
+    // species (constant=true) constant. Effective reaction rates are calculated 
+    // directly from chemical energies. Stiff solver is available with option
+    // "solve_implicit". Very slow for larger networks (>50 species).
     
     if(cl.have_param("simulate")) {
         std::string fn_network, fn_concentration;      
@@ -550,16 +574,22 @@ int main(int argc, const char *argv []){
         // Use implicit solver?
         bool solve_implicit=cl.have_param("solve_implicit");    
         // Is output given logarithmically spaced? (Or linearly?)        
-        bool write_log=cl.have_param("write_log");
-
+        size_t write_log=0;
+        if(cl.have_param("write_log"))
+            write_log=1;
+        if(cl.have_param("write_log_abs"))
+            write_log=2;
             
         std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax
                   << "   wint=" << wint << std::endl;
         if(write_rates) 
             cout << "Output contains reactions' effective rates." << endl;
 
-        if(write_log) 
-            cout << "Period of output will be equidistant on logscale." << endl;
+        if(write_log == 1) 
+            cout << "Period of output will be equidistant on logscale (from t=t_0)." << endl;
+
+        if(write_log == 2) 
+            cout << "Period of output will be equidistant on logscale (from t=0)." << endl;
 
         if(solve_implicit)
             cout << "Stiff solver is used!" << endl;
@@ -573,7 +603,14 @@ int main(int argc, const char *argv []){
     }  
 
 
-    if(cl.have_param("simsim")) {
+    // Simulates / integrates a reaction network while holding the boundary point 
+    // species (constant=true) constant. Official parameter to call this is 
+    // "fastint", the option to call using "simsim" is maintained for backward
+    // compatibility. This integrator is faster as the one above, especially for
+    // larger (>50 species) networks. It uses the reaction constants present in 
+    // the network and no stiff solver. 
+
+    if(cl.have_param("fastint") || cl.have_param("simsim")) {
         std::string fn_network, fn_concentration;      
 
         if(cl.have_param("net")) 
@@ -596,10 +633,21 @@ int main(int argc, const char *argv []){
         double Tmax = cl.have_param("Tmax") ? cl.get_param_d("Tmax") : 25000;  
         // Number of times the output is written between initial time and <Tmax> 
         double wint = cl.have_param("wint") ? cl.get_param_d("wint") : 500;
-        // Also rates are given as output (to the file fn_concentration)
+        // Is output given logarithmically spaced? (Or linearly?)        
+        size_t write_log=0;
+        if(cl.have_param("write_log"))
+            write_log=1;
+        if(cl.have_param("write_log_abs"))
+            write_log=2;
             
         std::cout << "Parameters are deltaT=" << deltaT << "  and Tmax=" << Tmax
                   << "   wint=" << wint << std::endl;
+
+        if(write_log == 1) 
+            cout << "Period of output will be equidistant on logscale (from t=t_0)." << endl;
+
+        if(write_log == 2) 
+            cout << "Period of output will be equidistant on logscale (from t=0)." << endl;
 
 
         // Load reaction network and concentration file
@@ -607,10 +655,9 @@ int main(int argc, const char *argv []){
 
         // Simulate ODE (and write results to file)
         // The method gives diagnostic feedback to the user through console output
-        rns.initialize_legacy();
-        rns.run_legacy(Tmax, deltaT, wint);
+        rns.initialize_fastint();
+        rns.run_fastint(Tmax, deltaT, wint, write_log);
     }  
-
 
     
     // User interface / help dialogue
@@ -628,9 +675,18 @@ int main(int argc, const char *argv []){
         cout << "   x'Tmax': Time up to which the system is simulated" << endl;
         cout << "   x'write_rates': 'con' file contains effective reaction rates" << endl;
         cout << "   x'wint': number of output times between Tstart and Tmax" << endl;
-        cout << "   x'write_log': write output logarithmically spaced (else linearly)" << endl;
+        cout << "   x'write_log': write output logarithmically spaced (from t=t_0)" << endl;
+        cout << "   x'write_log_abs': write output logarithmically spaced from (t=0)" << endl;
         cout << "   x'solve_implicit': use stiff solver (might be slower for big nets!)" << endl;
-        
+        cout << endl;
+        cout << "-'fastint': load reaction network 'net' and simulate file 'con'!. Other than above" << endl;
+        cout << "   this integrator does not offer a stiff solver. It also does not use energies to" << endl;
+        cout << "   calculate effective rates directly but uses reaction constants. Parameters are:" << endl;
+        cout << "   x'deltaT': Integration interval (relevant for integrator, not for output!)" << endl;
+        cout << "   x'Tmax': Time up to which the system is simulated" << endl;
+        cout << "   x'wint': number of output times between Tstart and Tmax" << endl;    
+        cout << "   x'write_log': write output logarithmically spaced (from t=t_0)" << endl;
+        cout << "   x'write_log_abs': write output logarithmically spaced from (t=0)" << endl;
 	cout << endl;
     } 
 }
