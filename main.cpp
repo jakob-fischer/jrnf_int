@@ -42,7 +42,7 @@ using namespace boost::numeric::odeint;
 #endif
 
 // version string increment if mayor changes happen
-const string odeint_rnet_version_string="0x00x04";
+const string odeint_rnet_version_string="1x00x00";
 
 // various ublas types needed for implicit solver
 typedef boost::numeric::ublas::vector< double > vector_type;
@@ -51,37 +51,42 @@ typedef boost::numeric::ublas::matrix< int > matrix_type_int;
 
 
 /*
- *
- *
+ * Main class that bundles the functionality to load reaction networks and 
+ * files containing species' concentration. Every object is associated with
+ * an network and concentration file at creation. The class offers methods
+ * for solving the ODE defined by the network and write the results to the
+ * concentration file.
  */
 
 class reaction_network_system {
     double beta;                // beta = 1/(k_b T)
     std::vector<species> sp;    // The reaction
     std::vector<reaction> re;   // network
-    // initial time, concentration and rates loaded with concentration file
+    // initial time, concentration loaded with concentration file
     double initial_t;    
-    vector_type initial_con, initial_rate;
+    vector_type initial_con;
     std::string fn_concentration;      // filename
 
     matrix_type_int N, N_in, N_out;    // stoichiometric matrices
     // List that contains for each column in N_in / N_out (= for each reaction)
     // a vector of those rows (species) that are nonzero.
     std::vector< std::vector<size_t> > N_in_list, N_out_list;
-    // 
+    // Intermediate values / thermodynamic values
     vector_type Ea, mu0, e_bs_in, e_bs_out, e_m_bEa;
 
 public:
+
+    /*
+     * Simple calculation of concentration change (rhs / f(x)) from species 
+     * concentration and reaction constants (<k>, <k_b>).
+     */
+
     struct fast_system {
         reaction_network_system& rns;
 
         fast_system(reaction_network_system& rns_) : rns(rns_)  {}
 
-        /*
-         * Prototype for the rhs of ODE
-         * 
-         */
-
+        // <x> - state / concentration;  dxdt - change / rhs (output)
         void operator()( const vector_type &x , vector_type &dxdt , double /* t */ ) {
 
             for(size_t i=0; i<rns.sp.size(); ++i) 
@@ -110,16 +115,18 @@ public:
          }
     };
 
+
+    /*
+     * Calculation of concentration change (rhs) from species concentration 
+     * and thermodynamic values (energies).
+     */
+
     struct stiff_system {
         reaction_network_system& rns;
 
         stiff_system(reaction_network_system& rns_) : rns(rns_)  {}
 
-
-        /*
-         * 
-         */
-
+        // Function to calculate reaction rates of state <x> into <rates>.
         void calculate_rates(const vector_type &x, vector_type &rates) {
             vector_type a2(rns.re.size()), a3(rns.re.size());
             for(size_t j=0; j<rns.N.size2(); ++j) { 
@@ -138,11 +145,7 @@ public:
             rates = element_prod(rns.e_m_bEa, element_prod(a2, rns.e_bs_in) - element_prod(a3, rns.e_bs_out));
         }
 
-        /*
-         * Prototype for the rhs of ODE
-         * 
-         */
-
+        // <x> - state / concentration;  <J> - Jacobi matrix (output);  dfdt - time partial differential (output)
         void operator()( const vector_type &x , vector_type &dxdt , double /* t */ ) {
             vector_type a2(rns.re.size()), a3(rns.re.size());
             for(size_t j=0; j<rns.N.size2(); ++j) { 
@@ -166,22 +169,18 @@ public:
     };
 
 
-
+    /*
+     * Calculation of Jacobi matrix from species concentration and thermodynamic
+     * values (energies).
+     */
 
     struct stiff_system_jacobi {
         const reaction_network_system& rns;
 
         stiff_system_jacobi(const reaction_network_system& rns_) : rns(rns_)  {}
 
-
-        /*
-         * Prototype for the Jacobi-Matrix of the ODE
-         * TODO: test + speed up 
-         */
-
+        // <x> - state / concentration;  <J> - Jacobi matrix (output);  dfdt - time partial differential (output)
         void operator()( const vector_type & x  , matrix_type &J , const double & /* t */ , vector_type &dfdt ) {
-            //matrix_type m(x.size(),x.size());
-           
             for(size_t i=0; i<x.size(); ++i) {
                 for(size_t l=0; l<x.size(); ++l) {
                     double s(0);
@@ -214,25 +213,23 @@ public:
                 }
             }                               
 
-
             dfdt = boost::numeric::ublas::zero_vector<double>(x.size());
         }
     };
 
 
-
-
     /*
-     *
+     * Constructor that loads the network file as well as the concentration file
+     * (for initial concentration). Also all temporary values that are necessary to
+     * solve (calculate rhs + Jacobi matrix) the ode faster are calculated.
      */
 
     reaction_network_system(const std::string& fn_network, const std::string& fn_concentration_) 
         : fn_concentration(fn_concentration_), beta(1) {
-        
+        // load network into <re> and <sp>
         read_jrnf_reaction_n(fn_network, sp, re);
     
-	
-	// Remove 1-0 and 0-1 reactions. Such reactions are there to ballance flow through the boundary conditions 
+	// Remove 1-0 and 0-1 reactions. Such reactions are there to ballance flow through the boundary conditions
         std::remove_if (re.begin(), re.end(), 
                         [] (reaction& re) -> bool { 
                             return re.get_no_educt() == 1 && re.get_no_product() == 0 || 
@@ -243,11 +240,12 @@ public:
         Ea =  e_bs_in = e_bs_out = e_m_bEa = boost::numeric::ublas::zero_vector<double>(re.size());
         mu0 = boost::numeric::ublas::zero_vector<double>(sp.size());
 
-
+        // Load species standard gibbs energy / chemical energy into mu0
         for(size_t i=0; i<sp.size(); ++i)
             mu0(i) = sp[i].get_energy();
 
-
+        // Load / calculate reaction specific quantities like activation Energy 
+        // <Ea> and joint energy of educts <m0_educts> or products <mu0_products>.
         for(size_t i=0; i<re.size(); ++i) {
             double mu0_educts(0), mu0_products(0);
 
@@ -262,7 +260,7 @@ public:
                 N_out(id,i) += mul;
                 mu0_products += sp[id].get_energy()*mul;
             }
-
+            
             Ea(i) = re[i].get_activation()+max(mu0_educts,mu0_products);
             e_bs_in(i) = exp(beta*mu0_educts);
             e_bs_out(i) = exp(beta*mu0_products);
@@ -271,9 +269,7 @@ public:
 
         N = N_out-N_in;
 
-        /* Build lists (for speedup)
-         */
-        
+        // Build lists (for speedup)        
         for(size_t i=0; i<re.size(); ++i) {
             N_in_list.push_back(std::vector<size_t>());
             N_out_list.push_back(std::vector<size_t>());
@@ -290,7 +286,6 @@ public:
         // Read last line of concentration file and write initial concentration to initial_con
         // and initial time to initial_t. When done, open the same file for appending...
         initial_con = boost::numeric::ublas::zero_vector<double>(sp.size());
-        initial_rate = boost::numeric::ublas::zero_vector<double>(re.size());
 
         std::ifstream  data(fn_concentration.c_str());
 
@@ -303,15 +298,16 @@ public:
         std::getline(data,line);       // dont want the header
         double last_msd=0;
 
-        // the real 
+        // Get line of actual data
         while(!std::getline(data,line).eof()) {
             std::stringstream ls(line);
             std::string cell;
 
+            // read in value by value and count its position to place it in the
+            // right variables
             size_t cnt=0;
             while(std::getline(ls,cell,',')) {
                 std::stringstream in(cell);       
-    
     
                 if(cnt == 0) 
                     in >> initial_t ;
@@ -328,7 +324,6 @@ public:
 
         std::cout << "Simulating file: " << fn_concentration << std::endl;
         std::cout << "Loaded concentration file with starting time " << initial_t << std::endl;
-                  
         data.close();        
     }
 
@@ -354,23 +349,34 @@ public:
 
 
     /*
+     * Method for calling the system that uses energetics for calculating effective
+     * rates and allows usage of a stiff solver - implicit stepper. System (f(x)) 
+     * is defined in "stiff_system" (rhs) and "stiff_system_jacobi (Jacobi matrix).
      *
-     *
+     * Tmax           - time up to that ode is solved
+     * deltaT         - initial step size for addaptive stepper (does not relate to time output is written) 
+     * solve_implicit - do use implicit solver?
+     * wint           - number of time output is written to output file between time of last 
+     *                  entry in concentration file and Tmax
+     * write_log = 0  - linearly spaced times for output
+     *           = 1  - logarithmically spaced (relative -> log(t-t0) is equidist.)
+     *           = 2  - logarithmically spaced (absolute -> log(t) is equidist.)             
      */
 
     void run(double Tmax=25000, double deltaT=0.1, bool solve_implicit=true, 
-             size_t wint=500, size_t write_log=0) {
-                
+             size_t wint=500, size_t write_log=0) {    
         fstream out(fn_concentration.c_str(), std::ios_base::out | std::ios_base::app);
         out.precision(25);
 
-        size_t t0 = time(NULL);
+        size_t t0 = time(NULL);  
 
         // Init solver and start
         vector_type x(initial_con), last_con(initial_con);
         double last_write(initial_t);
-         
+        
+        // Function that is called by stepper and writes concentration (<vec>) to file.
         auto write_state = [this, &out, t0, wint, deltaT, Tmax, &last_con, &last_write]( const vector_type &vec , const double t ) {
+            // calculate mean square distance from last write
             double last_msd=0;
             for(size_t i=0; i<vec.size(); ++i)
                  last_msd += (vec[i]-last_con[i])*(vec[i]-last_con[i]);
@@ -380,8 +386,9 @@ public:
             last_write=t;
             last_con=vec;
 
+            // write time and msd ...
             out << t << "," << last_msd;
-
+            // and concentrations
             for(size_t l=0; l<vec.size(); ++l)
                 out << "," << vec(l);
 
@@ -390,13 +397,17 @@ public:
 
 
         size_t step_no = 0;  // Number of steps done by integrator (for diagnostics)
+        // Calculate vector of time points at which "write_state" will be called.
         std::vector<double> times( wint );
         for( size_t i=0 ; i<wint ; ++i ) 
             if(write_log == 0) 
+                // linearly spaced output times
                 times[i] = initial_t + double(i+1)/(wint)*(Tmax-initial_t);
             else if(write_log == 1 || initial_t == 0) 
+                // logarithmically spaced output times (relative to t0)
                 times[i] = initial_t + (exp(double(i+1))-1)/(exp(double(wint))-1)*(Tmax-initial_t);
             else 
+                // if t0!=0 and one want's logarithmically spaced times (relative to t=0)!
                 times[i] = initial_t*pow(exp(1/double(wint)*log(Tmax/initial_t)),double(i+1));
 
         // Call integrator - returns number of steps. Either implicit or explicit stepper is used.
@@ -457,7 +468,7 @@ public:
          
         // Function that is called by stepper and writes concentration (<vec>) to file.
         auto write_state = [this, &out, t0, wint, deltaT, Tmax, &last_con, &last_write]( const vector_type &vec , const double t ) {
-            // calculate meas square distance from last write
+            // calculate mean square distance from last write
             double last_msd=0;
             for(size_t i=0; i<vec.size(); ++i)
                  last_msd += (vec[i]-last_con[i])*(vec[i]-last_con[i]);
