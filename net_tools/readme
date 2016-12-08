@@ -1,0 +1,89 @@
+author: jakob fischer (jakob@automorph.info)               date: 25th November 2016
+homepage: https://github.com/jakob-fischer/net_tools_lib
+-----------------------------------------------------------------------------------
+
+This is a c++ library for handling complex network generation and transformation.
+Many parts are using the file format described in "jrnf_description" (.jrnf).
+The files "reaction_network.h" and "reaction_network_fileop.h" contain classes
+and methods for handling general operations on reaction network. The code for
+using different type of complex network models to generate reaction networks is
+locatet in "network_tools.h".
+
+For a more scientific description of these models see:
+   [FKD15] J Fischer, A Kleidon, and P Dittrich. “Thermodynam-
+           ics of Random Reaction Networks.” In: PLoS ONE 10.2
+           (2015), e0117312.
+
+The subdirectory "sample_networks/" contains many atmospheric chemistry
+reaction networks and some other sample networks for testing algorithms.
+A description of these (their data source) is given below.
+
+atmospheric reaction networks:
+=============================
+jung_1999.jrnf (+ yung_1999_data.dat)
+-------------------------------------
+Reaction network of Earth's atmosphere (and related dataset):
+source: Yung YL, DeMore WB (1998) Photochemistry of Planetary Atmospheres. 
+        New York: Oxford University Press.
+
+duncan_chameides.jrnf
+---------------------
+Ozone reaction network:
+source: Duncan BN, Chameides WL (1998) Effects of urban emission control
+        strategies on the export of ozone and ozone precursors from the urban
+        atmosphere to the troposphere, J of Geophys Res
+
+hadac_2011.jrnf
+---------------
+Simple mesopause photochemical model:
+source: Hadač O, Schreiber I (2010) Stoichiometric network analysis of the 
+        photochemical processes in the mesopause region, Phys Chem Chem Phys
+
+nair_1994.jrnf
+--------------
+source: Nair H, Allen M, Anbar AD, Yung YL (1994) A photochemical Model of the
+        Martian Atmosphere, Icarus
+
+kasting_1985.jrnf
+-----------------
+Older model for Earth's atmosphere:
+source: Kasting JF, Holland HD, Pinto JP (1985) Oxidant Abundances in Rainwater
+        and the Evolution of Atmospheric Oxygen, J Geophys Res
+
+kasting_220.jrnf
+----------------
+Model for Earth's current atmosphere (high O2 concentration):
+source: - Kasting JF, Holland HD, Pinto JP (1985) Oxidant Abundances in Rainwater
+        and the Evolution of Atmospheric Oxygen, J Geophys Res
+        - Pavlov AA, Kasting, JF (2002) Mass-independent fractionation of 
+        sulfur isotopes in Archean sediments: strong evidence for an anoxic
+        Archean atmosphere, Astrobiology  
+        - Model source code: http://vpl.astro.washington.edu/sci/AntiModels/models09.html
+
+
+karting_359.jrnf
+----------------
+Model for Earth's archean atmosphere (reducing, high CO2 concentration):
+source: - Pavlov AA, Brown LL, Kasting JF (2001) UV shielding of NH3 and O2 by 
+        organic hazes in the Archean atmosphere, J Geophys Res-Planet
+        - Kharecha P, Kasting J, and Siefert J (2005) A coupled atmosphere–ecosystem 
+        model of the early Archean Earth, Geobiology
+        - Segura A, Meadows VS, Kasting J, Cohen M, Crisp D (2007) Abiotic 
+        production of O2 and O3 on high CO2 terrestrial atmospheres, Astrobiology
+        - Model source code: http://vpl.astro.washington.edu/sci/AntiModels/models09.html
+
+krasnopolsky_2007.jrnf
+----------------------
+source: Krasnopolsky VA (2007) Chemical kinetic model for the lower atmosphere 
+        of Venus, Icarus
+
+krasnopolsky_2012.jrnf
+----------------------
+source: Krasnopolsky VA (2012) A photochemical model for the Venus atmosphere 
+        at 47–112 km, Icarus
+
+
+simple test networks:
+====================
+test.jrnf, test2.jrnf, test3.jrnf, carbon3way.jrnf, onebox_cli_hyd.jrnf, 
+twobox_cli_H2O_C.jrnf, twobox_cli_hyd.jrnf, twobox_cli_rad.jrnf
