@@ -1,4 +1,4 @@
-/* author: jakob fischer (jakob@automorph.info)
+/* author: jakob fischer (mail@jakobfischer.eu)
  * description: 
  * Tool for solving a ODE for a reaction system given as an jrnf-file. The concentration and time
  * are read and written from / to a comma seperated file. Every row / line represents one time step.
